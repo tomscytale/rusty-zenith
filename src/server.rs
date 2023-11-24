@@ -117,7 +117,7 @@ pub async fn handle_source_put(
 
     // Sources must have a content type
     // Maybe the type that is served should be checked?
-    let mut properties = match crate::get_header("Content-Type", headers) {
+    let mut properties = match get_header("Content-Type", headers) {
         Some(content_type) => IcyProperties::new(std::str::from_utf8(content_type)?.to_string()),
         None => {
             return send_forbidden(
@@ -164,8 +164,8 @@ pub async fn handle_source_put(
         // No support for chunked or encoding ATM
         // TODO Add support for transfer encoding options as specified here: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Transfer-Encoding
         match (
-            crate::get_header("Transfer-Encoding", headers),
-            crate::get_header("Content-Length", headers),
+            get_header("Transfer-Encoding", headers),
+            get_header("Content-Length", headers),
         ) {
             (Some(b"identity"), Some(value)) | (None, Some(value)) => {
                 // Use content length decoder
@@ -216,7 +216,7 @@ pub async fn handle_source_put(
 
         // Check if client sent Expect: 100-continue in header, if that's the case we will need to return 100 in status code
         // Without it, it means that client has no body to send, we will stop if that's the case
-        match crate::get_header("Expect", headers) {
+        match get_header("Expect", headers) {
             Some(b"100-continue") => send_continue(&mut stream, &server_id).await?,
             Some(_) => {
                 return send_bad_request(
@@ -434,7 +434,7 @@ pub async fn handle_get(
         }
 
         // Check if metadata is enabled
-        let meta_enabled = crate::get_header("Icy-MetaData", headers).unwrap_or(b"0") == b"1";
+        let meta_enabled = get_header("Icy-MetaData", headers).unwrap_or(b"0") == b"1";
 
         // Reply with a 200 OK
         send_listener_ok(
@@ -461,7 +461,7 @@ pub async fn handle_get(
         let properties = ClientProperties {
             id: client_id,
             uagent: {
-                if let Some(arr) = crate::get_header("User-Agent", headers) {
+                if let Some(arr) = get_header("User-Agent", headers) {
                     if let Ok(parsed) = std::str::from_utf8(arr) {
                         Some(parsed.to_string())
                     } else {
@@ -1036,7 +1036,7 @@ pub async fn handle_get(
 }
 
 fn get_basic_auth(headers: &[httparse::Header]) -> Option<(String, String)> {
-    if let Some(auth) = crate::get_header("Authorization", headers) {
+    if let Some(auth) = get_header("Authorization", headers) {
         let reg =
             Regex::new(r"^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$")
                 .unwrap();
@@ -1656,7 +1656,7 @@ pub async fn relay_mountpoint(
     ];
     let (mut sock, buf) = timeout(
         Duration::from_millis(header_timeout),
-        crate::connect_and_redirect(
+        crate::icecast::connect_and_redirect(
             format!("{}{}", master_server.url, mount),
             headers,
             http_max_len,
@@ -1695,7 +1695,7 @@ pub async fn relay_mountpoint(
     }
 
     // checking if our peer is really an icecast server
-    if crate::get_header("icy-name", res.headers).is_none() {
+    if get_header("icy-name", res.headers).is_none() {
         return Err(Box::new(std::io::Error::new(
             ErrorKind::Other,
             "Is this a valid icecast stream?",
@@ -1703,8 +1703,8 @@ pub async fn relay_mountpoint(
     }
 
     let mut decoder = match (
-        crate::get_header("Transfer-Encoding", res.headers),
-        crate::get_header("Content-Length", res.headers),
+        get_header("Transfer-Encoding", res.headers),
+        get_header("Content-Length", res.headers),
     ) {
         (Some(b"identity"), Some(value)) | (None, Some(value)) => {
             // Use content length decoder
@@ -1737,7 +1737,7 @@ pub async fn relay_mountpoint(
     };
 
     // Sources must have a content type
-    let mut properties = match crate::get_header("Content-Type", res.headers) {
+    let mut properties = match get_header("Content-Type", res.headers) {
         Some(content_type) => IcyProperties::new(std::str::from_utf8(content_type)?.to_string()),
         None => {
             return Err(Box::new(std::io::Error::new(
@@ -1802,7 +1802,7 @@ pub async fn relay_mountpoint(
             remaining: usize,
         }
 
-        let metaint = match crate::get_header("Icy-Metaint", res.headers) {
+        let metaint = match get_header("Icy-Metaint", res.headers) {
             Some(val) => std::str::from_utf8(val)?.parse::<usize>()?,
             None => 0,
         };
@@ -2189,4 +2189,14 @@ pub async fn relay_mountpoint(
 
         Ok(())
     }
+}
+
+pub fn get_header<'a>(key: &str, headers: &[httparse::Header<'a>]) -> Option<&'a [u8]> {
+    let key = key.to_lowercase();
+    for header in headers {
+        if header.name.to_lowercase() == key {
+            return Some(header.value);
+        }
+    }
+    None
 }
