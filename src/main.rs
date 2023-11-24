@@ -499,7 +499,7 @@ async fn handle_connection(
             }
         }
     })
-        .await??;
+    .await??;
 
     let mut _headers = [httparse::EMPTY_HEADER; 32];
     let mut req = httparse::Request::new(&mut _headers);
@@ -523,7 +523,7 @@ async fn handle_connection(
                 &path,
                 headers,
             )
-                .await;
+            .await;
         }
         "GET" => {
             return handle_get(server, &mut stream, &server_id, queries, path, headers).await;
@@ -557,6 +557,19 @@ async fn handle_connection(
     Ok(())
 }
 
+fn remove_trailing_slash(path: &String) -> String {
+    let foo: String;
+
+    // Remove the trailing '/'
+    if path.ends_with('/') {
+        let mut chars = path.chars();
+        chars.next_back();
+        foo = chars.collect();
+        foo
+    } else {
+        path.to_string()
+    }
+}
 async fn handle_source_put(
     server: &Arc<RwLock<Server>>,
     mut stream: &mut TcpStream,
@@ -576,7 +589,7 @@ async fn handle_source_put(
                 &server_id,
                 Some(("text/plain; charset=urf-8", "Invalid credentials")),
             )
-                .await;
+            .await;
         }
     } else {
         // No auth, return and close
@@ -585,23 +598,12 @@ async fn handle_source_put(
             &server_id,
             Some(("text/plain; charset=urf-8", "You need to authenticate")),
         )
-            .await;
+        .await;
     }
 
     // http://example.com/radio == http://example.com/radio/
     // Not sure if this is done client-side prior to sending the request though
-    let foo;
-    let path = {
-        // Remove the trailing '/'
-        if path.ends_with('/') {
-            let mut chars = path.chars();
-            chars.next_back();
-            foo = chars.collect();
-            &foo
-        } else {
-            path
-        }
-    };
+    let path = &remove_trailing_slash(path);
 
     // Check if the path contains 'admin' or 'api'
     // TODO Allow for custom stream directory, such as http://example.com/stream/radio
@@ -615,7 +617,7 @@ async fn handle_source_put(
             &server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Check if it is valid
@@ -629,7 +631,7 @@ async fn handle_source_put(
                     &server_id,
                     Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
                 )
-                    .await;
+                .await;
             }
         } else {
             return send_forbidden(
@@ -637,7 +639,7 @@ async fn handle_source_put(
                 &server_id,
                 Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
             )
-                .await;
+            .await;
         }
     } else {
         return send_forbidden(
@@ -645,7 +647,7 @@ async fn handle_source_put(
             &server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Sources must have a content type
@@ -658,7 +660,7 @@ async fn handle_source_put(
                 &server_id,
                 Some(("text/plain; charset=utf-8", "No Content-type provided")),
             )
-                .await;
+            .await;
         }
     };
 
@@ -670,7 +672,7 @@ async fn handle_source_put(
             &server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Check if the max number of sources has been reached
@@ -682,7 +684,7 @@ async fn handle_source_put(
             &server_id,
             Some(("text/plain; charset=utf-8", "Too many sources connected")),
         )
-            .await;
+        .await;
     }
 
     let mut decoder: StreamDecoder;
@@ -713,7 +715,7 @@ async fn handle_source_put(
                                 &server_id,
                                 Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
                             )
-                                .await;
+                            .await;
                         }
                     },
                     Err(_) => {
@@ -725,7 +727,7 @@ async fn handle_source_put(
                                 "Unknown unicode found in Content-Length",
                             )),
                         )
-                            .await;
+                        .await;
                     }
                 }
             }
@@ -743,7 +745,7 @@ async fn handle_source_put(
                     &server_id,
                     Some(("text/plain; charset=utf-8", "Unsupported transfer encoding")),
                 )
-                    .await;
+                .await;
             }
         }
 
@@ -760,7 +762,7 @@ async fn handle_source_put(
                         "Expected 100-continue in Expect header",
                     )),
                 )
-                    .await;
+                .await;
             }
             None => {
                 return send_bad_request(
@@ -771,7 +773,7 @@ async fn handle_source_put(
                         "PUT request must come with Expect header",
                     )),
                 )
-                    .await;
+                .await;
             }
         }
     }
@@ -940,20 +942,10 @@ async fn handle_get(
     path: String,
     headers: &mut [Header<'_>],
 ) -> Result<(), Box<dyn Error>> {
-    let source_id = path.to_owned();
-    let source_id = {
-        // Remove the trailing '/'
-        if source_id.ends_with('/') {
-            let mut chars = source_id.chars();
-            chars.next_back();
-            chars.collect()
-        } else {
-            source_id
-        }
-    };
-
+    let source_id = remove_trailing_slash(&path);
     let mut serv = server.write().await;
     let source_option = serv.sources.get(&source_id);
+
     // Check if the source is valid
     if let Some(source_lock) = source_option {
         let mut source = source_lock.write().await;
@@ -972,7 +964,7 @@ async fn handle_get(
                 &server_id,
                 Some(("text/plain; charset=utf-8", "Too many listeners connected")),
             )
-                .await?;
+            .await?;
             return Ok(());
         }
 
@@ -987,7 +979,7 @@ async fn handle_get(
             meta_enabled,
             serv.properties.metaint,
         )
-            .await?;
+        .await?;
 
         // Create a client
         // Get a valid UUID
@@ -1096,7 +1088,7 @@ async fn handle_get(
                             &burst_buf,
                             &metadata_copy,
                         )
-                            .await
+                        .await
                     } else {
                         stream.write_all(&burst_buf).await
                     }
@@ -1147,7 +1139,7 @@ async fn handle_get(
                                     &read.to_vec(),
                                     &meta_vec,
                                 )
-                                    .await
+                                .await
                             } else {
                                 stream.write_all(&read.to_vec()).await
                             }
@@ -1762,7 +1754,7 @@ async fn master_server_mountpoints(
             http_max_redirects,
         ),
     )
-        .await??;
+    .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
@@ -1877,7 +1869,7 @@ async fn relay_mountpoint(
             http_max_redirects,
         ),
     )
-        .await??;
+    .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
@@ -2109,7 +2101,7 @@ async fn relay_mountpoint(
                                                 let reg = Regex::new(
                                                     r"^StreamTitle='(.+?)';StreamUrl='(.+?)';$",
                                                 )
-                                                    .unwrap();
+                                                .unwrap();
                                                 if let Some(captures) = reg.captures(meta_str) {
                                                     let metadata = IcyMetadata {
                                                         title: {
@@ -2274,7 +2266,7 @@ async fn relay_mountpoint(
                                                     let reg = Regex::new(
                                                         r"^StreamTitle='(.*?)';StreamUrl='(.*?)';$",
                                                     )
-                                                        .unwrap();
+                                                    .unwrap();
                                                     if let Some(captures) = reg.captures(meta_str) {
                                                         let metadata = IcyMetadata {
                                                             title: {
@@ -2478,7 +2470,7 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
         tokio::time::sleep(tokio::time::Duration::from_secs(
             master_server.update_interval,
         ))
-            .await;
+        .await;
     }
 }
 
@@ -2628,7 +2620,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unknown".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -2640,7 +2632,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Undefined".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -2652,7 +2644,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unnamed Station".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -2664,7 +2656,7 @@ async fn send_listener_ok(
                 "icy-url:{}\r\n\r\n",
                 properties.url.as_ref().unwrap_or(&"Unknown".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
 
