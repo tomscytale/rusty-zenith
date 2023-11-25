@@ -54,14 +54,14 @@ pub fn validate_user(properties: &ServerProperties, username: String, password: 
     false
 }
 
-pub async fn send_unauthorized(
+async fn send(
     stream: &mut TcpStream,
     id: &str,
+    status: &[u8],
     message: Option<(&str, &str)>,
+    extra_headers: Option<&[u8]>,
 ) -> Result<(), Box<dyn Error>> {
-    stream
-        .write_all(b"HTTP/1.0 401 Authorization Required\r\n")
-        .await?;
+    stream.write_all(status).await?;
     stream
         .write_all((format!("Server: {}\r\n", id)).as_bytes())
         .await?;
@@ -74,15 +74,30 @@ pub async fn send_unauthorized(
             .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
             .await?;
     }
-    stream
-        .write_all(b"WWW-Authenticate: Basic realm=\"Icy Server\"\r\n")
-        .await?;
+    if let Some(extra_header) = extra_headers {
+        stream.write_all(extra_header).await?;
+    }
     server_info(stream).await?;
     if let Some((_, text)) = message {
         stream.write_all(text.as_bytes()).await?;
     }
 
     Ok(())
+}
+
+pub async fn send_unauthorized(
+    stream: &mut TcpStream,
+    id: &str,
+    message: Option<(&str, &str)>,
+) -> Result<(), Box<dyn Error>> {
+    send(
+        stream,
+        id,
+        b"HTTP/1.0 401 Authorization Required\r\n",
+        message,
+        Some(b"WWW-Authenticate: Basic realm=\"Icy Server\"\r\n"),
+    )
+    .await
 }
 
 pub async fn send_forbidden(
@@ -90,25 +105,7 @@ pub async fn send_forbidden(
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
-    stream.write_all(b"HTTP/1.0 403 Forbidden\r\n").await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
-    server_info(stream).await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
-    }
-
-    Ok(())
+    send(stream, id, b"HTTP/1.0 403 Forbidden\r\n", message, None).await
 }
 
 pub async fn send_ok(
@@ -116,25 +113,7 @@ pub async fn send_ok(
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
-    stream.write_all(b"HTTP/1.0 200 OK\r\n").await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
-    server_info(stream).await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
-    }
-
-    Ok(())
+    send(stream, id, b"HTTP/1.0 200 OK\r\n", message, None).await
 }
 
 pub async fn send_bad_request(
@@ -142,35 +121,26 @@ pub async fn send_bad_request(
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
-    stream.write_all(b"HTTP/1.0 400 Bad Request\r\n").await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
-    server_info(stream).await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
-    }
-
-    Ok(())
+    send(stream, id, b"HTTP/1.0 400 Bad Request\r\n", message, None).await
 }
 
 pub async fn send_continue(stream: &mut TcpStream, id: &str) -> Result<(), Box<dyn Error>> {
-    stream.write_all(b"HTTP/1.0 200 OK\r\n").await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    server_info(stream).await?;
-    Ok(())
+    send(stream, id, b"HTTP/1.0 200 OK\r\n", None, None).await
+}
+
+pub async fn send_not_found(
+    stream: &mut TcpStream,
+    id: &str,
+    message: Option<(&str, &str)>,
+) -> Result<(), Box<dyn Error>> {
+    send(
+        stream,
+        id,
+        b"HTTP/1.0 404 File Not Found\r\n",
+        message,
+        None,
+    )
+    .await
 }
 
 pub async fn server_info(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
@@ -191,7 +161,22 @@ pub async fn server_info(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn get_header<'a>(key: &str, headers: &[httparse::Header<'a>]) -> Option<&'a [u8]> {
+pub async fn send_internal_error(
+    stream: &mut TcpStream,
+    id: &str,
+    message: Option<(&str, &str)>,
+) -> Result<(), Box<dyn Error>> {
+    send(
+        stream,
+        id,
+        b"HTTP/1.0 500 Internal Server Error\r\n",
+        message,
+        None,
+    )
+    .await
+}
+
+pub fn get_header<'a>(key: &str, headers: &[Header<'a>]) -> Option<&'a [u8]> {
     let key = key.to_lowercase();
     for header in headers {
         if header.name.to_lowercase() == key {
@@ -248,70 +233,4 @@ pub fn get_metadata_vec(metadata: &Option<IcyMetadata>) -> Vec<u8> {
     }
 
     subvec
-}
-
-pub async fn send_internal_error(
-    stream: &mut TcpStream,
-    id: &str,
-    message: Option<(&str, &str)>,
-) -> Result<(), Box<dyn Error>> {
-    stream
-        .write_all(b"HTTP/1.0 500 Internal Server Error\r\n")
-        .await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
-    server_info(stream).await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
-    }
-
-    Ok(())
-}
-
-pub async fn send_not_found(
-    stream: &mut TcpStream,
-    id: &str,
-    message: Option<(&str, &str)>,
-) -> Result<(), Box<dyn Error>> {
-    stream.write_all(b"HTTP/1.0 404 File Not Found\r\n").await?;
-    stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
-        .await?;
-    stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
-    stream
-        .write_all((format!("Date: {}\r\n", fmt_http_date(SystemTime::now()))).as_bytes())
-        .await?;
-    stream
-        .write_all(b"Cache-Control: no-cache, no-store\r\n")
-        .await?;
-    stream
-        .write_all(b"Expires: Mon, 26 Jul 1997 05:00:00 GMT\r\n")
-        .await?;
-    stream.write_all(b"Pragma: no-cache\r\n").await?;
-    stream
-        .write_all(b"Access-Control-Allow-Origin: *\r\n\r\n")
-        .await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
-    }
-
-    Ok(())
 }
