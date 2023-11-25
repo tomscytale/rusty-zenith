@@ -68,13 +68,13 @@ async fn main() {
             println!("Attempting to parse the config");
             match serde_json::from_str(contents.as_str()) {
                 Ok(prop) => properties = prop,
-                Err(e) => println!("An error occured while parsing the config: {}", e),
+                Err(e) => println!("An error occurred while parsing the config: {}", e),
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             println!("The config file was not found! Attempting to save to file");
         }
-        Err(e) => println!("An error occured while trying to read the config: {}", e),
+        Err(e) => println!("An error occurred while trying to read the config: {}", e),
     }
 
     // Create or update the current config
@@ -83,15 +83,15 @@ async fn main() {
             Ok(config) => {
                 let mut writer = BufWriter::new(file);
                 if let Err(e) = writer.write_all(config.as_bytes()) {
-                    println!("An error occured while writing to the config file: {}", e);
+                    println!("An error occurred while writing to the config file: {}", e);
                 }
             }
             Err(e) => println!(
-                "An error occured while trying to serialize the server properties: {}",
+                "An error occurred while trying to serialize the server properties: {}",
                 e
             ),
         },
-        Err(e) => println!("An error occured while to create the config file: {}", e),
+        Err(e) => println!("An error occurred while to create the config file: {}", e),
     }
 
     println!("Using ADDRESS            : {}", properties.address);

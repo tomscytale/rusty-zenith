@@ -27,7 +27,7 @@ pub async fn do_auth<'a>(
     None
 }
 
-pub fn get_basic_auth(headers: &[httparse::Header]) -> Option<(String, String)> {
+pub fn get_basic_auth(headers: &[Header]) -> Option<(String, String)> {
     if let Some(auth) = get_header("Authorization", headers) {
         let reg =
             Regex::new(r"^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$")

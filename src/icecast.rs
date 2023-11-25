@@ -46,14 +46,14 @@ pub async fn run_server(properties: ServerProperties, listener: TcpListener) {
                 tokio::spawn(async move {
                     if let Err(e) = server::handle_connection(server_clone, socket).await {
                         println!(
-                            "An error occured while handling a connection from {}: {}",
+                            "An error occurred while handling a connection from {}: {}",
                             addr, e
                         );
                     }
                 });
             }
             Err(e) => {
-                println!("An error occured while accepting a connection: {}", e)
+                println!("An error occurred while accepting a connection: {}", e)
             }
         }
     }
@@ -123,7 +123,7 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
                     server::relay_mountpoint(server_clone, master_clone, path.clone()).await
                 {
                     println!(
-                        "An error occured while relaying {} from {}: {}",
+                        "An error occurred while relaying {} from {}: {}",
                         path, url, e
                     );
                 }
@@ -131,10 +131,7 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
         }
 
         // update interval
-        tokio::time::sleep(tokio::time::Duration::from_secs(
-            master_server.update_interval,
-        ))
-        .await;
+        tokio::time::sleep(Duration::from_secs(master_server.update_interval)).await;
     }
 }
 

@@ -231,17 +231,17 @@ pub struct ServerProperties {
 impl ServerProperties {
     pub fn new() -> ServerProperties {
         ServerProperties {
-            address: crate::validators::default_property_address(),
-            port: crate::validators::default_property_port(),
-            metaint: crate::validators::default_property_metaint(),
-            server_id: crate::validators::default_property_server_id(),
-            admin: crate::validators::default_property_admin(),
-            host: crate::validators::default_property_host(),
-            location: crate::validators::default_property_location(),
-            description: crate::validators::default_property_description(),
-            limits: crate::validators::default_property_limits(),
-            users: crate::validators::default_property_users(),
-            master_server: crate::validators::default_property_master_server(),
+            address: default_property_address(),
+            port: default_property_port(),
+            metaint: default_property_metaint(),
+            server_id: default_property_server_id(),
+            admin: default_property_admin(),
+            host: default_property_host(),
+            location: default_property_location(),
+            description: default_property_description(),
+            limits: default_property_limits(),
+            users: default_property_users(),
+            master_server: default_property_master_server(),
         }
     }
 }

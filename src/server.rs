@@ -273,7 +273,7 @@ pub async fn handle_source_put(
             }
             Err(e) => {
                 println!(
-                    "An error occured while decoding stream data from source {}: {}",
+                    "An error occurred while decoding stream data from source {}: {}",
                     arc.read().await.mountpoint,
                     e
                 );
@@ -292,7 +292,7 @@ pub async fn handle_source_put(
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => {
                         println!(
-                            "An error occured while reading stream data from source {}: {}",
+                            "An error occurred while reading stream data from source {}: {}",
                             arc.read().await.mountpoint,
                             e
                         );
@@ -317,7 +317,7 @@ pub async fn handle_source_put(
                 }
                 Err(e) => {
                     println!(
-                        "An error occured while decoding stream data from source {}: {}",
+                        "An error occurred while decoding stream data from source {}: {}",
                         arc.read().await.mountpoint,
                         e
                     );
@@ -648,7 +648,7 @@ pub async fn handle_get(
     Ok(())
 }
 
-pub fn populate_properties(properties: &mut IcyProperties, headers: &[httparse::Header<'_>]) {
+pub fn populate_properties(properties: &mut IcyProperties, headers: &[Header<'_>]) {
     for header in headers {
         let name = header.name.to_lowercase();
         let name = name.as_str();
@@ -1285,7 +1285,7 @@ pub async fn relay_mountpoint(
                 }
                 Err(e) => {
                     println!(
-                        "An error occured while decoding stream data from relay {}: {}",
+                        "An error occurred while decoding stream data from relay {}: {}",
                         arc.read().await.mountpoint,
                         e
                     );
@@ -1305,7 +1305,7 @@ pub async fn relay_mountpoint(
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => {
                         println!(
-                            "An error occured while reading stream data from relay {}: {}",
+                            "An error occurred while reading stream data from relay {}: {}",
                             arc.read().await.mountpoint,
                             e
                         );
@@ -1457,7 +1457,7 @@ pub async fn relay_mountpoint(
                     }
                     Err(e) => {
                         println!(
-                            "An error occured while decoding stream data from relay {}: {}",
+                            "An error occurred while decoding stream data from relay {}: {}",
                             arc.read().await.mountpoint,
                             e
                         );
