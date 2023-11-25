@@ -142,15 +142,8 @@ async fn master_server_mountpoints(
     master_info: &MasterServer,
 ) -> Result<Vec<String>, Box<dyn Error>> {
     // Get all master mountpoints
-    let (server_id, header_timeout, http_max_len, http_max_redirects) = {
-        let properties = &server.read().await.properties;
-        (
-            properties.server_id.clone(),
-            properties.limits.header_timeout,
-            properties.limits.http_max_length,
-            properties.limits.http_max_redirects,
-        )
-    };
+    let (server_id, header_timeout, http_max_len, http_max_redirects) =
+        server::get_server_properties(&server).await;
 
     // read headers from client
     let headers = vec![

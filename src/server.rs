@@ -949,15 +949,8 @@ pub async fn relay_mountpoint(
     master_server: MasterServer,
     mount: String,
 ) -> Result<(), Box<dyn Error>> {
-    let (server_id, header_timeout, http_max_len, http_max_redirects) = {
-        let properties = &server.read().await.properties;
-        (
-            properties.server_id.clone(),
-            properties.limits.header_timeout,
-            properties.limits.http_max_length,
-            properties.limits.http_max_redirects,
-        )
-    };
+    let (server_id, header_timeout, http_max_len, http_max_redirects) =
+        get_server_properties(&server).await;
 
     // read headers from server
     let headers = vec![
@@ -1488,4 +1481,17 @@ pub async fn read_http_response(
             }
         }
     }
+}
+
+pub async fn get_server_properties(server: &Arc<RwLock<Server>>) -> (String, u64, usize, usize) {
+    let (server_id, header_timeout, http_max_len, http_max_redirects) = {
+        let properties = &server.read().await.properties;
+        (
+            properties.server_id.clone(),
+            properties.limits.header_timeout,
+            properties.limits.http_max_length,
+            properties.limits.http_max_redirects,
+        )
+    };
+    (server_id, header_timeout, http_max_len, http_max_redirects)
 }
