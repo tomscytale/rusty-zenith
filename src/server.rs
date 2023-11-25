@@ -329,7 +329,7 @@ pub async fn handle_source_put(
 
     let mut source = arc.write().await;
     let fallback = source.fallback.clone();
-    foo(server, &mut source, fallback).await;
+    disconnect_or_fallback(server, &mut source, fallback).await;
 
     // Clean up and remove the source
     let mut serv = server.write().await;
@@ -346,7 +346,7 @@ pub async fn handle_source_put(
     Ok(())
 }
 
-async fn foo(
+async fn disconnect_or_fallback(
     server: &Arc<RwLock<Server>>,
     source: &mut RwLockWriteGuard<'_, Source>,
     fallback: Option<String>,
@@ -1469,7 +1469,7 @@ pub async fn relay_mountpoint(
 
         let mut source = arc.write().await;
         let fallback = source.fallback.clone();
-        foo(&server, &mut source, fallback).await;
+        disconnect_or_fallback(&server, &mut source, fallback).await;
 
         // Clean up and remove the source
         let mut serv = server.write().await;
