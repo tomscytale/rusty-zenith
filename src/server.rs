@@ -22,14 +22,14 @@ use crate::structs::{
 };
 
 fn remove_trailing_slash(path: &String) -> String {
-    let foo: String;
+    let this_str: String;
 
     // Remove the trailing '/'
     if path.ends_with('/') {
         let mut chars = path.chars();
         chars.next_back();
-        foo = chars.collect();
-        foo
+        this_str = chars.collect();
+        this_str
     } else {
         path.to_string()
     }
@@ -37,8 +37,8 @@ fn remove_trailing_slash(path: &String) -> String {
 
 pub async fn handle_source_put(
     server: &Arc<RwLock<Server>>,
-    mut stream: &mut TcpStream,
-    server_id: &String,
+    stream: &mut TcpStream,
+    server_id: &str,
     message: &Vec<u8>,
     body_offset: &usize,
     method: &str,
@@ -50,20 +50,20 @@ pub async fn handle_source_put(
         if !validate_user(&server.read().await.properties, name, pass) {
             // Invalid user/pass provided
             return send_unauthorized(
-                &mut stream,
-                &server_id,
+                stream,
+                server_id,
                 Some(("text/plain; charset=urf-8", "Invalid credentials")),
             )
-            .await;
+                .await;
         }
     } else {
         // No auth, return and close
         return send_unauthorized(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             Some(("text/plain; charset=urf-8", "You need to authenticate")),
         )
-        .await;
+            .await;
     }
 
     // http://example.com/radio == http://example.com/radio/
@@ -78,11 +78,11 @@ pub async fn handle_source_put(
         || path.starts_with("/api/")
     {
         return send_forbidden(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-        .await;
+            .await;
     }
 
     // Check if it is valid
@@ -92,27 +92,27 @@ pub async fn handle_source_put(
         if let Some(parent_str) = parent.to_str() {
             if parent_str != "/" {
                 return send_forbidden(
-                    &mut stream,
-                    &server_id,
+                    stream,
+                    server_id,
                     Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
                 )
-                .await;
+                    .await;
             }
         } else {
             return send_forbidden(
-                &mut stream,
-                &server_id,
+                stream,
+                server_id,
                 Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
             )
-            .await;
+                .await;
         }
     } else {
         return send_forbidden(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-        .await;
+            .await;
     }
 
     // Sources must have a content type
@@ -121,11 +121,11 @@ pub async fn handle_source_put(
         Some(content_type) => IcyProperties::new(std::str::from_utf8(content_type)?.to_string()),
         None => {
             return send_forbidden(
-                &mut stream,
-                &server_id,
+                stream,
+                server_id,
                 Some(("text/plain; charset=utf-8", "No Content-type provided")),
             )
-            .await;
+                .await;
         }
     };
 
@@ -133,11 +133,11 @@ pub async fn handle_source_put(
     // Check if the mountpoint is already in use
     if serv.sources.contains_key(path) {
         return send_forbidden(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-        .await;
+            .await;
     }
 
     // Check if the max number of sources has been reached
@@ -145,18 +145,18 @@ pub async fn handle_source_put(
         || serv.sources.len() >= serv.properties.limits.total_sources
     {
         return send_forbidden(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             Some(("text/plain; charset=utf-8", "Too many sources connected")),
         )
-        .await;
+            .await;
     }
 
     let mut decoder: StreamDecoder;
 
     if method == "SOURCE" {
         // Give an 200 OK response
-        send_ok(&mut stream, &server_id, None).await?;
+        send_ok(stream, server_id, None).await?;
 
         decoder = StreamDecoder::new(TransferEncoding::Identity);
     } else {
@@ -176,23 +176,23 @@ pub async fn handle_source_put(
                         }
                         Err(_) => {
                             return send_bad_request(
-                                &mut stream,
-                                &server_id,
+                                stream,
+                                server_id,
                                 Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
                             )
-                            .await;
+                                .await;
                         }
                     },
                     Err(_) => {
                         return send_bad_request(
-                            &mut stream,
-                            &server_id,
+                            stream,
+                            server_id,
                             Some((
                                 "text/plain; charset=utf-8",
                                 "Unknown unicode found in Content-Length",
                             )),
                         )
-                        .await;
+                            .await;
                     }
                 }
             }
@@ -206,39 +206,39 @@ pub async fn handle_source_put(
             }
             _ => {
                 return send_bad_request(
-                    &mut stream,
-                    &server_id,
+                    stream,
+                    server_id,
                     Some(("text/plain; charset=utf-8", "Unsupported transfer encoding")),
                 )
-                .await;
+                    .await;
             }
         }
 
         // Check if client sent Expect: 100-continue in header, if that's the case we will need to return 100 in status code
         // Without it, it means that client has no body to send, we will stop if that's the case
         match get_header("Expect", headers) {
-            Some(b"100-continue") => send_continue(&mut stream, &server_id).await?,
+            Some(b"100-continue") => send_continue(stream, server_id).await?,
             Some(_) => {
                 return send_bad_request(
-                    &mut stream,
-                    &server_id,
+                    stream,
+                    server_id,
                     Some((
                         "text/plain; charset=utf-8",
                         "Expected 100-continue in Expect header",
                     )),
                 )
-                .await;
+                    .await;
             }
             None => {
                 return send_bad_request(
-                    &mut stream,
-                    &server_id,
+                    stream,
+                    server_id,
                     Some((
                         "text/plain; charset=utf-8",
                         "PUT request must come with Expect header",
                     )),
                 )
-                .await;
+                    .await;
             }
         }
     }
@@ -392,17 +392,17 @@ pub async fn handle_source_put(
 
     if method == "PUT" {
         // request must end with server 200 OK response
-        send_ok(&mut stream, &server_id, None).await.ok();
+        send_ok(stream, server_id, None).await.ok();
     }
 
     println!("Unmounted source {}", source.mountpoint);
-    return Ok(());
+    Ok(())
 }
 
 pub async fn handle_get(
     server: Arc<RwLock<Server>>,
-    mut stream: &mut TcpStream,
-    server_id: &String,
+    stream: &mut TcpStream,
+    server_id: &str,
     queries: Option<Vec<Query>>,
     path: String,
     headers: &mut [Header<'_>],
@@ -425,11 +425,11 @@ pub async fn handle_get(
         };
         if serv.clients.len() >= serv.properties.limits.clients || too_many_clients {
             send_forbidden(
-                &mut stream,
-                &server_id,
+                stream,
+                server_id,
                 Some(("text/plain; charset=utf-8", "Too many listeners connected")),
             )
-            .await?;
+                .await?;
             return Ok(());
         }
 
@@ -438,13 +438,13 @@ pub async fn handle_get(
 
         // Reply with a 200 OK
         send_listener_ok(
-            &mut stream,
-            &server_id,
+            stream,
+            server_id,
             &source.properties,
             meta_enabled,
             serv.properties.metaint,
         )
-        .await?;
+            .await?;
 
         // Create a client
         // Get a valid UUID
@@ -547,13 +547,13 @@ pub async fn handle_get(
                 match {
                     if meta_enabled {
                         write_to_client(
-                            &mut stream,
+                            stream,
                             &mut sent_count,
                             metalen,
                             &burst_buf,
                             &metadata_copy,
                         )
-                        .await
+                            .await
                     } else {
                         stream.write_all(&burst_buf).await
                     }
@@ -598,13 +598,13 @@ pub async fn handle_get(
                                 };
 
                                 write_to_client(
-                                    &mut stream,
+                                    stream,
                                     &mut sent_count,
                                     metalen,
                                     &read.to_vec(),
                                     &meta_vec,
                                 )
-                                .await
+                                    .await
                             } else {
                                 stream.write_all(&read.to_vec()).await
                             }
@@ -659,11 +659,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 // Authentication passed
@@ -684,16 +684,16 @@ pub async fn handle_get(
                                         }),
                                     };
                                     source.metadata_vec = get_metadata_vec(&source.metadata);
-                                    send_ok(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Success"))).await?;
+                                    send_ok(stream, server_id, Some(("text/plain; charset=utf-8", "Success"))).await?;
                                 }
-                                None => send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
+                                None => send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/listclients" => {
@@ -703,11 +703,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -730,19 +730,19 @@ pub async fn handle_get(
                                 }
 
                                 if let Ok(serialized) = serde_json::to_string(&clients) {
-                                    send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
+                                    send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
                                 } else {
-                                    send_internal_error(&mut stream, &server_id, None).await?;
+                                    send_internal_error(stream, server_id, None).await?;
                                 }
                             } else {
-                                send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                                send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/fallbacks" => {
@@ -752,11 +752,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -770,16 +770,16 @@ pub async fn handle_get(
                                 } else {
                                     println!("Unset the fallback for {}", mount);
                                 }
-                                send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
                             } else {
-                                send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                                send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/moveclients" => {
@@ -789,11 +789,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -810,16 +810,16 @@ pub async fn handle_get(
                                     }
 
                                     println!("Moved clients from {} to {}", mount, dest);
-                                    send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                    send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
                                 }
-                                _ => send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
+                                _ => send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/killclient" => {
@@ -829,11 +829,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -844,20 +844,20 @@ pub async fn handle_get(
                                     if let Some(client) = source.read().await.clients.get(&uuid) {
                                         drop(client.read().await.sender.write().await.send(Arc::new(Vec::new())));
                                         println!("Killing client {}", uuid);
-                                        send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                        send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
                                     } else {
-                                        send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?;
+                                        send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?;
                                     }
                                 }
-                                (None, _) => send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
-                                (Some(_), Err(_)) => send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?,
+                                (None, _) => send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
+                                (Some(_), Err(_)) => send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?,
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/killsource" => {
@@ -867,11 +867,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -881,16 +881,16 @@ pub async fn handle_get(
                                 source.write().await.disconnect_flag = true;
 
                                 println!("Killing source {}", mount);
-                                send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
                             } else {
-                                send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                                send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/admin/listmounts" => {
@@ -900,11 +900,11 @@ pub async fn handle_get(
                     // For testing purposes right now
                     // TODO Add proper configuration
                     if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
+                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
                     }
                 } else {
                     // No auth, return and close
-                    return send_unauthorized(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
                 }
 
                 let mut sources: HashMap<String, Value> = HashMap::new();
@@ -924,9 +924,9 @@ pub async fn handle_get(
                 }
 
                 if let Ok(serialized) = serde_json::to_string(&sources) {
-                    send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
+                    send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
                 } else {
-                    send_internal_error(&mut stream, &server_id, None).await?;
+                    send_internal_error(stream, server_id, None).await?;
                 }
             }
             "/api/serverinfo" => {
@@ -949,9 +949,9 @@ pub async fn handle_get(
 						} );
 
                 if let Ok(serialized) = serde_json::to_string(&info) {
-                    send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
+                    send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
                 } else {
-                    send_internal_error(&mut stream, &server_id, None).await?;
+                    send_internal_error(stream, server_id, None).await?;
                 }
             }
             "/api/mountinfo" => {
@@ -982,19 +982,19 @@ pub async fn handle_get(
 										} );
 
                                 if let Ok(serialized) = serde_json::to_string(&info) {
-                                    send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
+                                    send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
                                 } else {
-                                    send_internal_error(&mut stream, &server_id, None).await?;
+                                    send_internal_error(stream, server_id, None).await?;
                                 }
                             } else {
-                                send_forbidden(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                                send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
                             }
                         }
-                        _ => send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                        _ => send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
                     }
                 } else {
                     // Bad request
-                    send_bad_request(&mut stream, &server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                    send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
                 }
             }
             "/api/stats" => {
@@ -1025,10 +1025,10 @@ pub async fn handle_get(
 							"session_bytes_sent": total_bytes_sent
 						} );
 
-                send_ok(&mut stream, &server_id, Some(("application/json; charset=utf-8", &response.to_string()))).await?;
+                send_ok(stream, server_id, Some(("application/json; charset=utf-8", &response.to_string()))).await?;
             }
             // Return 404
-            _ => send_not_found(&mut stream, &server_id, Some(("text/html; charset=utf-8", "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>"))).await?,
+            _ => send_not_found(stream, server_id, Some(("text/html; charset=utf-8", "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>"))).await?,
         }
     }
 
@@ -1040,10 +1040,10 @@ fn get_basic_auth(headers: &[httparse::Header]) -> Option<(String, String)> {
         let reg =
             Regex::new(r"^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$")
                 .unwrap();
-        if let Some(capture) = reg.captures(std::str::from_utf8(&auth).unwrap()) {
+        if let Some(capture) = reg.captures(std::str::from_utf8(auth).unwrap()) {
             if let Some((name, pass)) = std::str::from_utf8(&base64::decode(&capture[1]).unwrap())
                 .unwrap()
-                .split_once(":")
+                .split_once(':')
             {
                 return Some((String::from(name), String::from(pass)));
             }
@@ -1314,7 +1314,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unknown".to_string())
             ))
-            .as_bytes(),
+                .as_bytes(),
         )
         .await?;
     stream
@@ -1326,7 +1326,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Undefined".to_string())
             ))
-            .as_bytes(),
+                .as_bytes(),
         )
         .await?;
     stream
@@ -1338,7 +1338,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unnamed Station".to_string())
             ))
-            .as_bytes(),
+                .as_bytes(),
         )
         .await?;
     stream
@@ -1350,7 +1350,7 @@ async fn send_listener_ok(
                 "icy-url:{}\r\n\r\n",
                 properties.url.as_ref().unwrap_or(&"Unknown".to_string())
             ))
-            .as_bytes(),
+                .as_bytes(),
         )
         .await?;
 
@@ -1396,7 +1396,7 @@ async fn write_to_client(
         send = data;
     }
 
-    stream.write_all(&send).await
+    stream.write_all(send).await
 }
 
 fn get_queries_for(keys: Vec<&str>, queries: &[Query]) -> Vec<Option<String>> {
@@ -1573,7 +1573,7 @@ pub async fn handle_connection(
             }
         }
     })
-    .await??;
+        .await??;
 
     let mut _headers = [httparse::EMPTY_HEADER; 32];
     let mut req = httparse::Request::new(&mut _headers);
@@ -1597,7 +1597,7 @@ pub async fn handle_connection(
                 &path,
                 headers,
             )
-            .await;
+                .await;
         }
         "GET" => {
             return handle_get(server, &mut stream, &server_id, queries, path, headers).await;
@@ -1663,7 +1663,7 @@ pub async fn relay_mountpoint(
             http_max_redirects,
         ),
     )
-    .await??;
+        .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
@@ -1895,7 +1895,7 @@ pub async fn relay_mountpoint(
                                                 let reg = Regex::new(
                                                     r"^StreamTitle='(.+?)';StreamUrl='(.+?)';$",
                                                 )
-                                                .unwrap();
+                                                    .unwrap();
                                                 if let Some(captures) = reg.captures(meta_str) {
                                                     let metadata = IcyMetadata {
                                                         title: {
@@ -2060,7 +2060,7 @@ pub async fn relay_mountpoint(
                                                     let reg = Regex::new(
                                                         r"^StreamTitle='(.*?)';StreamUrl='(.*?)';$",
                                                     )
-                                                    .unwrap();
+                                                        .unwrap();
                                                     if let Some(captures) = reg.captures(meta_str) {
                                                         let metadata = IcyMetadata {
                                                             title: {

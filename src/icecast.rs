@@ -134,7 +134,7 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
         tokio::time::sleep(tokio::time::Duration::from_secs(
             master_server.update_interval,
         ))
-        .await;
+            .await;
     }
 }
 
@@ -167,7 +167,7 @@ async fn master_server_mountpoints(
             http_max_redirects,
         ),
     )
-    .await??;
+        .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
@@ -386,7 +386,7 @@ async fn read_http_response(
         let mut res = httparse::Response::new(&mut headers);
         let read = stream.read(&mut buf).await?;
         buffer.extend_from_slice(&buf[..read]);
-        match res.parse(&buffer) {
+        match res.parse(buffer) {
             Ok(Status::Complete(offset)) => return Ok(offset),
             Ok(Status::Partial) if buffer.len() > max_len => {
                 return Err(Box::new(std::io::Error::new(

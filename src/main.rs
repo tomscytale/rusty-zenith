@@ -13,11 +13,11 @@ mod structs;
 mod validators;
 
 fn extract_queries(url: &str) -> (&str, Option<Vec<Query>>) {
-    if let Some((path, last)) = url.split_once("?") {
+    if let Some((path, last)) = url.split_once('?') {
         let mut queries: Vec<Query> = Vec::new();
         for field in last.split('&') {
             // decode doesn't treat + as a space
-            if let Some((name, value)) = field.replace("+", " ").split_once('=') {
+            if let Some((name, value)) = field.replace('+', " ").split_once('=') {
                 let name = urlencoding::decode(name);
                 let value = urlencoding::decode(value);
 
@@ -64,7 +64,7 @@ async fn main() {
     match std::fs::read_to_string(&config_location) {
         Ok(contents) => {
             println!("Attempting to parse the config");
-            match serde_json::from_str(&contents.as_str()) {
+            match serde_json::from_str(contents.as_str()) {
                 Ok(prop) => properties = prop,
                 Err(e) => println!("An error occured while parsing the config: {}", e),
             }
