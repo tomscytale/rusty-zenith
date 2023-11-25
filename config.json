@@ -1,0 +1,44 @@
+{
+  "address": "0.0.0.0",
+  "port": 8000,
+  "metaint": 16000,
+  "server_id": "Rusty Zenith 0.1.0",
+  "admin": "admin@localhost",
+  "host": "localhost",
+  "location": "1.048596",
+  "description": "Yet Another Internet Radio",
+  "limits": {
+    "clients": 400,
+    "sources": 4,
+    "total_sources": 4,
+    "queue_size": 102400,
+    "burst_size": 65536,
+    "header_timeout": 15000,
+    "source_timeout": 10000,
+    "http_max_length": 8192,
+    "http_max_redirects": 5,
+    "source_limits": {
+      "/radio": {
+        "clients": 400,
+        "burst_size": 65536,
+        "source_timeout": 10000
+      }
+    }
+  },
+  "users": [
+    {
+      "username": "admin",
+      "password": "hackme"
+    },
+    {
+      "username": "source",
+      "password": "hackme"
+    }
+  ],
+  "master_server": {
+    "enabled": false,
+    "url": "http://localhost:8001",
+    "update_interval": 120,
+    "relay_limit": 4
+  }
+}

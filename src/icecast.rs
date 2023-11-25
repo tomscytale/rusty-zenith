@@ -12,8 +12,8 @@ use tokio::time::timeout;
 use tokio_native_tls::native_tls::TlsConnector;
 use url::Url;
 
-use crate::server;
 use crate::structs::{MasterServer, Server, ServerProperties, Stream};
+use crate::{http, server};
 
 pub async fn run_server(properties: ServerProperties, listener: TcpListener) {
     let server = Arc::new(RwLock::new(Server::new(properties)));
@@ -182,7 +182,7 @@ async fn master_server_mountpoints(
         }
     };
 
-    let mut len = match server::get_header("Content-Length", res.headers) {
+    let mut len = match http::get_header("Content-Length", res.headers) {
         Some(val) => {
             let parsed = std::str::from_utf8(val)?;
             parsed.parse::<usize>()?
@@ -333,7 +333,7 @@ pub async fn connect_and_redirect(
                                 ErrorKind::Other,
                                 "Maximum redirects reached",
                             )));
-                        } else if let Some(location) = server::get_header("Location", res.headers) {
+                        } else if let Some(location) = http::get_header("Location", res.headers) {
                             // Try parsing it into a URL first
                             let loc_str = std::str::from_utf8(location)?;
                             if let Ok(mut redirect) = Url::parse(loc_str) {

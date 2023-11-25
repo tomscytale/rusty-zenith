@@ -6,7 +6,9 @@ use tokio::net::TcpListener;
 
 use crate::structs::{Query, ServerProperties};
 
+mod admin;
 mod consts;
+mod http;
 mod icecast;
 mod server;
 mod structs;
