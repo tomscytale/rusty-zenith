@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -46,24 +46,14 @@ pub async fn handle_source_put(
     headers: &mut [Header<'_>],
 ) -> Result<(), Box<dyn Error>> {
     // Check for authorization
-    if let Some((name, pass)) = get_basic_auth(headers) {
-        if !validate_user(&server.read().await.properties, name, pass) {
-            // Invalid user/pass provided
-            return send_unauthorized(
-                stream,
-                server_id,
-                Some(("text/plain; charset=urf-8", "Invalid credentials")),
-            )
-                .await;
-        }
-    } else {
-        // No auth, return and close
+    let serv = &server.read().await;
+    if let Some(value) = do_auth(headers, serv).await {
         return send_unauthorized(
             stream,
             server_id,
-            Some(("text/plain; charset=urf-8", "You need to authenticate")),
+            Some(("text/plain; charset=utf-8", value)),
         )
-            .await;
+        .await;
     }
 
     // http://example.com/radio == http://example.com/radio/
@@ -82,7 +72,7 @@ pub async fn handle_source_put(
             server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Check if it is valid
@@ -96,7 +86,7 @@ pub async fn handle_source_put(
                     server_id,
                     Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
                 )
-                    .await;
+                .await;
             }
         } else {
             return send_forbidden(
@@ -104,7 +94,7 @@ pub async fn handle_source_put(
                 server_id,
                 Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
             )
-                .await;
+            .await;
         }
     } else {
         return send_forbidden(
@@ -112,7 +102,7 @@ pub async fn handle_source_put(
             server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Sources must have a content type
@@ -125,7 +115,7 @@ pub async fn handle_source_put(
                 server_id,
                 Some(("text/plain; charset=utf-8", "No Content-type provided")),
             )
-                .await;
+            .await;
         }
     };
 
@@ -137,7 +127,7 @@ pub async fn handle_source_put(
             server_id,
             Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
         )
-            .await;
+        .await;
     }
 
     // Check if the max number of sources has been reached
@@ -149,7 +139,7 @@ pub async fn handle_source_put(
             server_id,
             Some(("text/plain; charset=utf-8", "Too many sources connected")),
         )
-            .await;
+        .await;
     }
 
     let mut decoder: StreamDecoder;
@@ -180,7 +170,7 @@ pub async fn handle_source_put(
                                 server_id,
                                 Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
                             )
-                                .await;
+                            .await;
                         }
                     },
                     Err(_) => {
@@ -192,7 +182,7 @@ pub async fn handle_source_put(
                                 "Unknown unicode found in Content-Length",
                             )),
                         )
-                            .await;
+                        .await;
                     }
                 }
             }
@@ -210,7 +200,7 @@ pub async fn handle_source_put(
                     server_id,
                     Some(("text/plain; charset=utf-8", "Unsupported transfer encoding")),
                 )
-                    .await;
+                .await;
             }
         }
 
@@ -227,7 +217,7 @@ pub async fn handle_source_put(
                         "Expected 100-continue in Expect header",
                     )),
                 )
-                    .await;
+                .await;
             }
             None => {
                 return send_bad_request(
@@ -238,7 +228,7 @@ pub async fn handle_source_put(
                         "PUT request must come with Expect header",
                     )),
                 )
-                    .await;
+                .await;
             }
         }
     }
@@ -429,7 +419,7 @@ pub async fn handle_get(
                 server_id,
                 Some(("text/plain; charset=utf-8", "Too many listeners connected")),
             )
-                .await?;
+            .await?;
             return Ok(());
         }
 
@@ -444,7 +434,7 @@ pub async fn handle_get(
             meta_enabled,
             serv.properties.metaint,
         )
-            .await?;
+        .await?;
 
         // Create a client
         // Get a valid UUID
@@ -553,7 +543,7 @@ pub async fn handle_get(
                             &burst_buf,
                             &metadata_copy,
                         )
-                            .await
+                        .await
                     } else {
                         stream.write_all(&burst_buf).await
                     }
@@ -604,7 +594,7 @@ pub async fn handle_get(
                                     &read.to_vec(),
                                     &meta_vec,
                                 )
-                                    .await
+                                .await
                             } else {
                                 stream.write_all(&read.to_vec()).await
                             }
@@ -655,15 +645,8 @@ pub async fn handle_get(
             "/admin/metadata" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 // Authentication passed
@@ -699,15 +682,8 @@ pub async fn handle_get(
             "/admin/listclients" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -747,16 +723,8 @@ pub async fn handle_get(
             }
             "/admin/fallbacks" => {
                 let serv = server.read().await;
-                // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -785,15 +753,8 @@ pub async fn handle_get(
             "/admin/moveclients" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -825,15 +786,8 @@ pub async fn handle_get(
             "/admin/killclient" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -863,15 +817,8 @@ pub async fn handle_get(
             "/admin/killsource" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 if let Some(queries) = queries {
@@ -896,15 +843,8 @@ pub async fn handle_get(
             "/admin/listmounts" => {
                 let serv = server.read().await;
                 // Check for authorization
-                if let Some((name, pass)) = get_basic_auth(headers) {
-                    // For testing purposes right now
-                    // TODO Add proper configuration
-                    if !validate_user(&serv.properties, name, pass) {
-                        return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid credentials"))).await;
-                    }
-                } else {
-                    // No auth, return and close
-                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", "You need to authenticate"))).await;
+                if let Some(value) = do_auth(headers, &serv).await {
+                    return send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
                 }
 
                 let mut sources: HashMap<String, Value> = HashMap::new();
@@ -1033,6 +973,23 @@ pub async fn handle_get(
     }
 
     Ok(())
+}
+
+async fn do_auth<'a>(
+    headers: &'a mut [Header<'_>],
+    serv: &'a RwLockReadGuard<'_, Server>,
+) -> Option<&'a str> {
+    if let Some((name, pass)) = get_basic_auth(headers) {
+        // For testing purposes right now
+        // TODO Add proper configuration
+        if !validate_user(&serv.properties, name, pass) {
+            return Some("Invalid credentials");
+        }
+    } else {
+        // No auth, return and close
+        return Some("You need to authenticate");
+    }
+    None
 }
 
 fn get_basic_auth(headers: &[httparse::Header]) -> Option<(String, String)> {
@@ -1314,7 +1271,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unknown".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -1326,7 +1283,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Undefined".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -1338,7 +1295,7 @@ async fn send_listener_ok(
                     .as_ref()
                     .unwrap_or(&"Unnamed Station".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
     stream
@@ -1350,7 +1307,7 @@ async fn send_listener_ok(
                 "icy-url:{}\r\n\r\n",
                 properties.url.as_ref().unwrap_or(&"Unknown".to_string())
             ))
-                .as_bytes(),
+            .as_bytes(),
         )
         .await?;
 
@@ -1573,7 +1530,7 @@ pub async fn handle_connection(
             }
         }
     })
-        .await??;
+    .await??;
 
     let mut _headers = [httparse::EMPTY_HEADER; 32];
     let mut req = httparse::Request::new(&mut _headers);
@@ -1597,7 +1554,7 @@ pub async fn handle_connection(
                 &path,
                 headers,
             )
-                .await;
+            .await;
         }
         "GET" => {
             return handle_get(server, &mut stream, &server_id, queries, path, headers).await;
@@ -1663,7 +1620,7 @@ pub async fn relay_mountpoint(
             http_max_redirects,
         ),
     )
-        .await??;
+    .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
@@ -1895,7 +1852,7 @@ pub async fn relay_mountpoint(
                                                 let reg = Regex::new(
                                                     r"^StreamTitle='(.+?)';StreamUrl='(.+?)';$",
                                                 )
-                                                    .unwrap();
+                                                .unwrap();
                                                 if let Some(captures) = reg.captures(meta_str) {
                                                     let metadata = IcyMetadata {
                                                         title: {
@@ -2060,7 +2017,7 @@ pub async fn relay_mountpoint(
                                                     let reg = Regex::new(
                                                         r"^StreamTitle='(.*?)';StreamUrl='(.*?)';$",
                                                     )
-                                                        .unwrap();
+                                                    .unwrap();
                                                     if let Some(captures) = reg.captures(meta_str) {
                                                         let metadata = IcyMetadata {
                                                             title: {

@@ -134,7 +134,7 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
         tokio::time::sleep(tokio::time::Duration::from_secs(
             master_server.update_interval,
         ))
-            .await;
+        .await;
     }
 }
 
@@ -167,7 +167,7 @@ async fn master_server_mountpoints(
             http_max_redirects,
         ),
     )
-        .await??;
+    .await??;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
