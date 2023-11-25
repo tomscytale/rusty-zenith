@@ -43,8 +43,10 @@ pub async fn run_server(properties: ServerProperties, listener: TcpListener) {
             Ok((socket, addr)) => {
                 let server_clone = server.clone();
 
+                let stream = Stream::Plain(socket);
+
                 tokio::spawn(async move {
-                    if let Err(e) = server::handle_connection(server_clone, socket).await {
+                    if let Err(e) = server::handle_connection(server_clone, stream).await {
                         println!(
                             "An error occurred while handling a connection from {}: {}",
                             addr, e
@@ -308,7 +310,7 @@ pub async fn connect_and_redirect(
 
             let mut buf = Vec::new();
             // First time parsing the response
-            read_http_response(&mut stream, &mut buf, max_len).await?;
+            server::read_http_response(&mut stream, &mut buf, max_len).await?;
 
             let mut _headers = [httparse::EMPTY_HEADER; 32];
             let mut res = httparse::Response::new(&mut _headers);
@@ -368,36 +370,6 @@ pub async fn connect_and_redirect(
                 ErrorKind::AddrNotAvailable,
                 format!("Invalid URL provided: {}", str_url),
             )));
-        }
-    }
-}
-
-async fn read_http_response(
-    stream: &mut Stream,
-    buffer: &mut Vec<u8>,
-    max_len: usize,
-) -> Result<usize, Box<dyn Error>> {
-    let mut buf = [0; 1024];
-    loop {
-        let mut headers = [httparse::EMPTY_HEADER; 32];
-        let mut res = httparse::Response::new(&mut headers);
-        let read = stream.read(&mut buf).await?;
-        buffer.extend_from_slice(&buf[..read]);
-        match res.parse(buffer) {
-            Ok(Status::Complete(offset)) => return Ok(offset),
-            Ok(Status::Partial) if buffer.len() > max_len => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Request exceeded the maximum allowed length",
-                )));
-            }
-            Ok(Status::Partial) => (),
-            Err(e) => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Received an invalid request: {}", e),
-                )));
-            }
         }
     }
 }
