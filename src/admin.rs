@@ -5,15 +5,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use httparse::Header;
 use serde_json::{json, Value};
+use tokio::net::TcpStream;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::http;
-use crate::structs::{IcyMetadata, Query, Server, Stream};
+use crate::structs::{IcyMetadata, Query, Server};
 
 pub async fn do_admin(
     server: Arc<RwLock<Server>>,
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     server_id: &str,
     queries: Option<Vec<Query>>,
     path: String,

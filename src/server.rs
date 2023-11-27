@@ -7,6 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use httparse::{Header, Status};
 use httpdate::fmt_http_date;
 use regex::Regex;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio::time::timeout;
@@ -14,7 +16,7 @@ use uuid::Uuid;
 
 use crate::structs::{
     Client, ClientProperties, ClientStats, IcyMetadata, IcyProperties, MasterServer, Query, Server,
-    Source, Stream, StreamDecoder, TransferEncoding,
+    Source, StreamDecoder, TransferEncoding,
 };
 use crate::{admin, http};
 
@@ -34,7 +36,7 @@ fn remove_trailing_slash(path: &String) -> String {
 
 pub async fn handle_source_put(
     server: &Arc<RwLock<Server>>,
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     server_id: &str,
     message: &Vec<u8>,
     body_offset: &usize,
@@ -390,7 +392,7 @@ async fn drop_all(source: &mut RwLockWriteGuard<'_, Source>) {
 
 pub async fn handle_get(
     server: Arc<RwLock<Server>>,
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     server_id: &str,
     queries: Option<Vec<Query>>,
     path: String,
@@ -729,7 +731,7 @@ pub async fn broadcast_to_clients(
 }
 
 async fn send_listener_ok(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     properties: &IcyProperties,
     meta_enabled: bool,
@@ -823,7 +825,7 @@ async fn send_listener_ok(
 }
 
 async fn write_to_client(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     sent_count: &mut usize,
     metalen: usize,
     data: &[u8],
@@ -866,7 +868,7 @@ async fn write_to_client(
 
 pub async fn handle_connection(
     server: Arc<RwLock<Server>>,
-    mut stream: Stream,
+    mut stream: TcpStream,
 ) -> Result<(), Box<dyn Error>> {
     let (server_id, header_timeout, http_max_len) = {
         let properties = &server.read().await.properties;
@@ -878,12 +880,33 @@ pub async fn handle_connection(
     };
 
     let mut message = Vec::new();
+    let mut buf = [0; 1024];
 
     // Add a timeout
-    timeout(
-        Duration::from_millis(header_timeout),
-        read_http_response(&mut stream, &mut message, http_max_len),
-    )
+    timeout(Duration::from_millis(header_timeout), async {
+        loop {
+            let mut headers = [httparse::EMPTY_HEADER; 32];
+            let mut req = httparse::Request::new(&mut headers);
+            let read = stream.read(&mut buf).await?;
+            message.extend_from_slice(&buf[..read]);
+            match req.parse(&message) {
+                Ok(Status::Complete(offset)) => return Ok(offset),
+                Ok(Status::Partial) if message.len() > http_max_len => {
+                    return Err(Box::new(std::io::Error::new(
+                        ErrorKind::Other,
+                        "Request exceeded the maximum allowed length",
+                    )));
+                }
+                Ok(Status::Partial) => (),
+                Err(e) => {
+                    return Err(Box::new(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        format!("Received an invalid request: {}", e),
+                    )));
+                }
+            }
+        }
+    })
     .await??;
 
     let mut _headers = [httparse::EMPTY_HEADER; 32];
@@ -1450,36 +1473,6 @@ pub async fn relay_mountpoint(
         println!("Unmounted relay {}", source.mountpoint);
 
         Ok(())
-    }
-}
-
-pub async fn read_http_response(
-    stream: &mut Stream,
-    buffer: &mut Vec<u8>,
-    max_len: usize,
-) -> Result<usize, Box<dyn Error>> {
-    let mut buf = [0; 1024];
-    loop {
-        let mut headers = [httparse::EMPTY_HEADER; 32];
-        let mut res = httparse::Response::new(&mut headers);
-        let read = stream.read(&mut buf).await?;
-        buffer.extend_from_slice(&buf[..read]);
-        match res.parse(buffer) {
-            Ok(Status::Complete(offset)) => return Ok(offset),
-            Ok(Status::Partial) if buffer.len() > max_len => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Request exceeded the maximum allowed length",
-                )));
-            }
-            Ok(Status::Partial) => (),
-            Err(e) => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Received an invalid request: {}", e),
-                )));
-            }
-        }
     }
 }
 

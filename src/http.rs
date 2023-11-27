@@ -4,9 +4,11 @@ use std::time::SystemTime;
 use httparse::Header;
 use httpdate::fmt_http_date;
 use regex::Regex;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio::sync::RwLockReadGuard;
 
-use crate::structs::{IcyMetadata, Query, Server, ServerProperties, Stream};
+use crate::structs::{IcyMetadata, Query, Server, ServerProperties};
 
 pub async fn do_auth<'a>(
     headers: &'a mut [Header<'_>],
@@ -53,7 +55,7 @@ pub fn validate_user(properties: &ServerProperties, username: String, password: 
 }
 
 async fn send(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     status: &[u8],
     message: Option<(&str, &str)>,
@@ -84,7 +86,7 @@ async fn send(
 }
 
 pub async fn send_unauthorized(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
@@ -99,7 +101,7 @@ pub async fn send_unauthorized(
 }
 
 pub async fn send_forbidden(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
@@ -107,7 +109,7 @@ pub async fn send_forbidden(
 }
 
 pub async fn send_ok(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
@@ -115,19 +117,19 @@ pub async fn send_ok(
 }
 
 pub async fn send_bad_request(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
     send(stream, id, b"HTTP/1.0 400 Bad Request\r\n", message, None).await
 }
 
-pub async fn send_continue(stream: &mut Stream, id: &str) -> Result<(), Box<dyn Error>> {
+pub async fn send_continue(stream: &mut TcpStream, id: &str) -> Result<(), Box<dyn Error>> {
     send(stream, id, b"HTTP/1.0 200 OK\r\n", None, None).await
 }
 
 pub async fn send_not_found(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
@@ -141,7 +143,7 @@ pub async fn send_not_found(
     .await
 }
 
-pub async fn server_info(stream: &mut Stream) -> Result<(), Box<dyn Error>> {
+pub async fn server_info(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     stream
         .write_all((format!("Date: {}\r\n", fmt_http_date(SystemTime::now()))).as_bytes())
         .await?;
@@ -160,7 +162,7 @@ pub async fn server_info(stream: &mut Stream) -> Result<(), Box<dyn Error>> {
 }
 
 pub async fn send_internal_error(
-    stream: &mut Stream,
+    stream: &mut TcpStream,
     id: &str,
     message: Option<(&str, &str)>,
 ) -> Result<(), Box<dyn Error>> {
