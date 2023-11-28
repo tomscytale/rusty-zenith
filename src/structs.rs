@@ -4,6 +4,7 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use httparse::{Error as HttpError, Status};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -284,6 +285,25 @@ impl Server {
             relay_count: 0,
             properties,
             stats: ServerStats::new(),
+        }
+    }
+}
+
+pub enum RorR {
+    Request,
+    Response,
+}
+
+pub enum ReqOrRes<'a, 'b> {
+    Request(httparse::Request<'a, 'b>),
+    Response(httparse::Response<'a, 'b>),
+}
+
+impl<'a, 'b> ReqOrRes<'a, 'b> {
+    pub fn parse<'c: 'b>(&mut self, buffer: &'c [u8]) -> Result<Status<usize>, HttpError> {
+        match self {
+            ReqOrRes::Response(response) => response.parse(buffer),
+            ReqOrRes::Request(request) => request.parse(buffer),
         }
     }
 }
