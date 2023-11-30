@@ -12,6 +12,7 @@ use tokio::time::timeout;
 use tokio_native_tls::native_tls::TlsConnector;
 use url::Url;
 
+use crate::server::get_offset;
 use crate::structs::{MasterServer, RorR, Server, ServerProperties, Stream};
 use crate::{http, server};
 
@@ -137,40 +138,15 @@ async fn slave_node(server: Arc<RwLock<Server>>, master_server: MasterServer) {
 
 async fn master_server_mountpoints(
     server: &Arc<RwLock<Server>>,
-    master_info: &MasterServer,
+    master_server: &MasterServer,
 ) -> Result<Vec<String>, Box<dyn Error>> {
+    let url = format!("{}/api/serverinfo", master_server.url);
     // Get all master mountpoints
-    let (server_id, header_timeout, http_max_len, http_max_redirects) =
-        server::get_server_properties(server).await;
-
-    // read headers from client
-    let headers = vec![
-        format!("User-Agent: {}", server_id),
-        "Connection: Closed".to_string(),
-    ];
-    let (mut sock, message) = timeout(
-        Duration::from_millis(header_timeout),
-        connect_and_redirect(
-            format!("{}/api/serverinfo", master_info.url),
-            headers,
-            http_max_len,
-            http_max_redirects,
-        ),
-    )
-    .await??;
+    let (_, mut sock, message) = server::read_headers(server, url, None).await?;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
     let mut res = httparse::Response::new(&mut headers);
-
-    let body_offset = match res.parse(&message)? {
-        Status::Complete(offset) => offset,
-        Status::Partial => {
-            return Err(Box::new(std::io::Error::new(
-                ErrorKind::Other,
-                "Received an incomplete response",
-            )));
-        }
-    };
+    let body_offset = get_offset(&message, &mut res)?;
 
     let mut len = match http::get_header("Content-Length", res.headers) {
         Some(val) => {

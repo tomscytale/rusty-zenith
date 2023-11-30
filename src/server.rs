@@ -951,38 +951,13 @@ pub async fn relay_mountpoint(
     master_server: MasterServer,
     mount: String,
 ) -> Result<(), Box<dyn Error>> {
-    let (server_id, header_timeout, http_max_len, http_max_redirects) =
-        get_server_properties(&server).await;
-
-    // read headers from server
-    let headers = vec![
-        format!("User-Agent: {}", server_id),
-        "Connection: Closed".to_string(),
-        "Icy-Metadata:1".to_string(),
-    ];
-    let (mut sock, buf) = timeout(
-        Duration::from_millis(header_timeout),
-        crate::icecast::connect_and_redirect(
-            format!("{}{}", master_server.url, mount),
-            headers,
-            http_max_len,
-            http_max_redirects,
-        ),
-    )
-    .await??;
+    let url = format!("{}{}", master_server.url, mount);
+    let extra_header = "Icy-Metadata:1".to_string();
+    let (server_id, mut sock, message) = read_headers(&server, url, Some(extra_header)).await?;
 
     let mut headers = [httparse::EMPTY_HEADER; 32];
-    let mut res = httparse::Response::new(&mut headers);
-
-    let body_offset = match res.parse(&buf)? {
-        Status::Complete(offset) => offset,
-        Status::Partial => {
-            return Err(Box::new(std::io::Error::new(
-                ErrorKind::Other,
-                "Received an incomplete response",
-            )));
-        }
-    };
+    let mut res = Response::new(&mut headers);
+    let body_offset = get_offset(&message, &mut res)?;
 
     match res.code {
         Some(200) => (),
@@ -1120,11 +1095,11 @@ pub async fn relay_mountpoint(
 
         println!("Mounted relay on {}", arc.read().await.mountpoint);
 
-        if buf.len() > body_offset {
-            let slice = &buf[body_offset..];
+        if message.len() > body_offset {
+            let slice = &message[body_offset..];
             let mut data = Vec::new();
             // This bit of code is really ugly, but oh well
-            match decoder.decode(&mut data, slice, buf.len() - body_offset) {
+            match decoder.decode(&mut data, slice, message.len() - body_offset) {
                 Ok(read) => {
                     if read != 0 {
                         // Process any metadata, if it exists
@@ -1453,6 +1428,46 @@ pub async fn relay_mountpoint(
 
         Ok(())
     }
+}
+
+pub fn get_offset<'a>(
+    message: &'a [u8],
+    res: &mut Response<'a, 'a>,
+) -> Result<usize, Box<dyn Error>> {
+    let body_offset = match res.parse(message)? {
+        Status::Complete(offset) => offset,
+        Status::Partial => {
+            return Err(Box::new(std::io::Error::new(
+                ErrorKind::Other,
+                "Received an incomplete response",
+            )));
+        }
+    };
+    Ok(body_offset)
+}
+
+pub async fn read_headers(
+    server: &Arc<RwLock<Server>>,
+    url: String,
+    extra_header: Option<String>,
+) -> Result<(String, Stream, Vec<u8>), Box<dyn Error>> {
+    let (server_id, header_timeout, http_max_len, http_max_redirects) =
+        get_server_properties(server).await;
+
+    // read headers from server
+    let mut headers = vec![
+        format!("User-Agent: {}", server_id),
+        "Connection: Closed".to_string(),
+    ];
+    if let Some(header) = extra_header {
+        headers.push(header);
+    }
+    let (sock, message) = timeout(
+        Duration::from_millis(header_timeout),
+        crate::icecast::connect_and_redirect(url, headers, http_max_len, http_max_redirects),
+    )
+    .await??;
+    Ok((server_id, sock, message))
 }
 
 pub async fn get_server_properties(server: &Arc<RwLock<Server>>) -> (String, u64, usize, usize) {
