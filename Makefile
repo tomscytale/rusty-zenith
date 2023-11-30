@@ -1,4 +1,5 @@
 .PHONY: clippy
+clippy:
 	cargo clippy
 
 .PHONY: build
@@ -10,4 +11,9 @@ fmt:
 	rustfmt --edition 2021 src/*
 
 .PHONY: fmt-build
-fmt-build: fmt build
+fmt-build:
+	fmt build
+
+.PHONY: run
+run:
+	 ./target/debug/rusty-zenith

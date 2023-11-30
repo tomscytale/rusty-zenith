@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use httparse::{Request, Response, Status};
+use httparse::Status;
 use httpdate::fmt_http_date;
 use serde::Deserialize;
 use tokio::net::{TcpListener, TcpStream};
@@ -12,7 +12,7 @@ use tokio::time::timeout;
 use tokio_native_tls::native_tls::TlsConnector;
 use url::Url;
 
-use crate::structs::{MasterServer, ReqOrRes, RorR, Server, ServerProperties, Stream};
+use crate::structs::{MasterServer, RorR, Server, ServerProperties, Stream};
 use crate::{http, server};
 
 pub async fn run_server(properties: ServerProperties, listener: TcpListener) {
@@ -298,10 +298,10 @@ pub async fn connect_and_redirect<'a>(
             }
             req_buf.extend_from_slice(b"\r\n");
             stream.write_all(&req_buf).await?;
-
             let mut buf = Vec::new();
+
             // First time parsing the response
-            read_http_response(&mut stream, &mut buf, max_len, RorR::Response).await?;
+            server::read_http_response(&mut stream, &mut buf, max_len, RorR::Response).await?;
 
             let mut _headers = [httparse::EMPTY_HEADER; 32];
             let mut res = httparse::Response::new(&mut _headers);
@@ -361,41 +361,6 @@ pub async fn connect_and_redirect<'a>(
                 ErrorKind::AddrNotAvailable,
                 format!("Invalid URL provided: {}", str_url),
             )));
-        }
-    }
-}
-
-async fn read_http_response<'a>(
-    stream: &mut Stream,
-    buffer: &'a mut Vec<u8>,
-    max_len: usize,
-    req_or_res: RorR,
-) -> Result<usize, Box<dyn Error>> {
-    let mut buf = [0; 1024];
-    loop {
-        let mut headers = [httparse::EMPTY_HEADER; 32];
-        let mut res = match req_or_res {
-            RorR::Request => ReqOrRes::Request(Request::new(&mut headers)),
-            RorR::Response => ReqOrRes::Response(Response::new(&mut headers)),
-        };
-
-        let read = stream.read(&mut buf).await?;
-        buffer.extend_from_slice(&buf[..read]);
-        match res.parse(buffer) {
-            Ok(Status::Complete(offset)) => return Ok(offset),
-            Ok(Status::Partial) if buffer.len() > max_len => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Request exceeded the maximum allowed length",
-                )));
-            }
-            Ok(Status::Partial) => (),
-            Err(e) => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Received an invalid request: {}", e),
-                )));
-            }
         }
     }
 }

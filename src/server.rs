@@ -4,10 +4,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use httparse::{Header, Status};
+use httparse::{Header, Request, Response, Status};
 use httpdate::fmt_http_date;
 use regex::Regex;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{RwLock, RwLockWriteGuard};
@@ -15,8 +14,8 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::structs::{
-    Client, ClientProperties, ClientStats, IcyMetadata, IcyProperties, MasterServer, Query, Server,
-    Source, StreamDecoder, TransferEncoding,
+    Client, ClientProperties, ClientStats, IcyMetadata, IcyProperties, MasterServer, Query,
+    ReqOrRes, RorR, Server, Source, Stream, StreamDecoder, TransferEncoding,
 };
 use crate::{admin, http};
 
@@ -36,7 +35,7 @@ fn remove_trailing_slash(path: &String) -> String {
 
 pub async fn handle_source_put(
     server: &Arc<RwLock<Server>>,
-    stream: &mut TcpStream,
+    stream: &mut Stream,
     server_id: &str,
     message: &Vec<u8>,
     body_offset: &usize,
@@ -392,7 +391,7 @@ async fn drop_all(source: &mut RwLockWriteGuard<'_, Source>) {
 
 pub async fn handle_get(
     server: Arc<RwLock<Server>>,
-    stream: &mut TcpStream,
+    stream: &mut Stream,
     server_id: &str,
     queries: Option<Vec<Query>>,
     path: String,
@@ -731,7 +730,7 @@ pub async fn broadcast_to_clients(
 }
 
 async fn send_listener_ok(
-    stream: &mut TcpStream,
+    stream: &mut Stream,
     id: &str,
     properties: &IcyProperties,
     meta_enabled: bool,
@@ -825,7 +824,7 @@ async fn send_listener_ok(
 }
 
 async fn write_to_client(
-    stream: &mut TcpStream,
+    stream: &mut Stream,
     sent_count: &mut usize,
     metalen: usize,
     data: &[u8],
@@ -868,7 +867,7 @@ async fn write_to_client(
 
 pub async fn handle_connection(
     server: Arc<RwLock<Server>>,
-    mut stream: TcpStream,
+    tcp_stream: TcpStream,
 ) -> Result<(), Box<dyn Error>> {
     let (server_id, header_timeout, http_max_len) = {
         let properties = &server.read().await.properties;
@@ -879,39 +878,19 @@ pub async fn handle_connection(
         )
     };
 
-    let mut message = Vec::new();
-    let mut buf = [0; 1024];
+    let mut buffer = Vec::new();
+    let mut stream = Stream::Plain(tcp_stream);
 
     // Add a timeout
-    timeout(Duration::from_millis(header_timeout), async {
-        loop {
-            let mut headers = [httparse::EMPTY_HEADER; 32];
-            let mut req = httparse::Request::new(&mut headers);
-            let read = stream.read(&mut buf).await?;
-            message.extend_from_slice(&buf[..read]);
-            match req.parse(&message) {
-                Ok(Status::Complete(offset)) => return Ok(offset),
-                Ok(Status::Partial) if message.len() > http_max_len => {
-                    return Err(Box::new(std::io::Error::new(
-                        ErrorKind::Other,
-                        "Request exceeded the maximum allowed length",
-                    )));
-                }
-                Ok(Status::Partial) => (),
-                Err(e) => {
-                    return Err(Box::new(std::io::Error::new(
-                        ErrorKind::InvalidData,
-                        format!("Received an invalid request: {}", e),
-                    )));
-                }
-            }
-        }
-    })
+    timeout(
+        Duration::from_millis(header_timeout),
+        read_http_response(&mut stream, &mut buffer, http_max_len, RorR::Request),
+    )
     .await??;
 
     let mut _headers = [httparse::EMPTY_HEADER; 32];
     let mut req = httparse::Request::new(&mut _headers);
-    let body_offset = req.parse(&message)?.unwrap();
+    let body_offset = req.parse(&buffer)?.unwrap();
     let method = req.method.unwrap();
 
     let (base_path, queries) = crate::extract_queries(req.path.unwrap());
@@ -925,7 +904,7 @@ pub async fn handle_connection(
                 &server,
                 &mut stream,
                 &server_id,
-                &message,
+                &buffer,
                 &body_offset,
                 method,
                 &path,
@@ -1487,4 +1466,39 @@ pub async fn get_server_properties(server: &Arc<RwLock<Server>>) -> (String, u64
         )
     };
     (server_id, header_timeout, http_max_len, http_max_redirects)
+}
+
+pub async fn read_http_response<'a>(
+    stream: &mut Stream,
+    buffer: &'a mut Vec<u8>,
+    max_len: usize,
+    req_or_res: RorR,
+) -> Result<usize, Box<dyn Error>> {
+    let mut buf = [0; 1024];
+    loop {
+        let mut headers = [httparse::EMPTY_HEADER; 32];
+        let mut res = match req_or_res {
+            RorR::Request => ReqOrRes::Request(Request::new(&mut headers)),
+            RorR::Response => ReqOrRes::Response(Response::new(&mut headers)),
+        };
+
+        let read = stream.read(&mut buf).await?;
+        buffer.extend_from_slice(&buf[..read]);
+        match res.parse(buffer) {
+            Ok(Status::Complete(offset)) => return Ok(offset),
+            Ok(Status::Partial) if buffer.len() > max_len => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Request exceeded the maximum allowed length",
+                )));
+            }
+            Ok(Status::Partial) => (),
+            Err(e) => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Received an invalid request: {}", e),
+                )));
+            }
+        }
+    }
 }
