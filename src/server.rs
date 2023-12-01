@@ -1101,7 +1101,7 @@ pub async fn relay_mountpoint(
             let slice = &message[body_offset..];
             let mut data = Vec::new();
             // This bit of code is really ugly, but oh well
-            decode_thing(
+            decode_stream(
                 message.len() - body_offset,
                 &mut decoder,
                 queue_size,
@@ -1138,7 +1138,7 @@ pub async fn relay_mountpoint(
                 };
 
                 let mut data = Vec::new();
-                decode_thing(
+                decode_stream(
                     read,
                     &mut decoder,
                     queue_size,
@@ -1168,7 +1168,7 @@ pub async fn relay_mountpoint(
     }
 }
 
-async fn decode_thing(
+async fn decode_stream(
     length: usize,
     decoder: &mut StreamDecoder,
     queue_size: usize,
@@ -1178,136 +1178,8 @@ async fn decode_thing(
     slice: &[u8],
     data: &mut Vec<u8>,
 ) -> bool {
-    match decoder.decode(data, slice, length) {
-        Ok(decode_read) => {
-            if decode_read != 0 {
-                // Process any metadata, if it exists
-                let data = {
-                    if meta_info.metaint != 0 {
-                        let mut trimmed = Vec::new();
-                        let mut position = 0;
-                        let mut last_full: Option<Vec<u8>> = None;
-                        while position < decode_read {
-                            // Either reading in regular stream data
-                            // Reading in the length of the metadata
-                            // Or reading the metadata directly
-                            if meta_info.remaining != 0 {
-                                let frame_length =
-                                    std::cmp::min(decode_read - position, meta_info.remaining);
-                                if frame_length != 0 {
-                                    trimmed.extend_from_slice(
-                                        &data[position..position + frame_length],
-                                    );
-                                    meta_info.remaining -= frame_length;
-                                    position += frame_length;
-                                }
-                            } else if meta_info.vec.is_empty() {
-                                // Reading the length of the metadata segment
-                                meta_info.vec.push(data[position]);
-                                position += 1;
-                            } else {
-                                // Reading in metadata
-                                let size = 1 + ((meta_info.vec[0] as usize) << 4);
-                                let remaining_metadata = std::cmp::min(
-                                    decode_read - position,
-                                    size - meta_info.vec.len(),
-                                );
-                                meta_info.vec.extend_from_slice(
-                                    &data[position..position + remaining_metadata],
-                                );
-                                position += remaining_metadata;
-
-                                // If it's reached the max size, then copy it over to last_full
-                                if meta_info.vec.len() == size {
-                                    meta_info.remaining = meta_info.metaint;
-                                    last_full = Some(meta_info.vec.clone());
-                                    meta_info.vec.clear();
-                                }
-                            }
-                        }
-
-                        // Update the source's metadata
-                        if let Some(metadata_vec) = last_full {
-                            if !{
-                                let serv_vec = &arc.read().await.metadata_vec;
-                                serv_vec.len() == metadata_vec.len()
-                                    && serv_vec.iter().eq(metadata_vec.iter())
-                            } {
-                                if metadata_vec[..] == [1; 0] {
-                                    let mut serv = arc.write().await;
-                                    println!(
-                                        "Updated relay {} metadata with no title and url",
-                                        serv.mountpoint
-                                    );
-                                    serv.metadata_vec = vec![0];
-                                    serv.metadata = None;
-                                } else {
-                                    let cut = {
-                                        let mut last = metadata_vec.len();
-                                        while metadata_vec[last - 1] == 0 {
-                                            last -= 1;
-                                        }
-                                        last
-                                    };
-                                    if let Ok(meta_str) = std::str::from_utf8(&metadata_vec[1..cut])
-                                    {
-                                        let reg =
-                                            Regex::new(r"^StreamTitle='(.+?)';StreamUrl='(.+?)';$")
-                                                .unwrap();
-                                        if let Some(captures) = reg.captures(meta_str) {
-                                            let metadata = IcyMetadata {
-                                                title: {
-                                                    let m_str = captures.get(1).unwrap().as_str();
-                                                    if m_str.is_empty() {
-                                                        None
-                                                    } else {
-                                                        Some(m_str.to_string())
-                                                    }
-                                                },
-                                                url: {
-                                                    let m_str = captures.get(2).unwrap().as_str();
-                                                    if m_str.is_empty() {
-                                                        None
-                                                    } else {
-                                                        Some(m_str.to_string())
-                                                    }
-                                                },
-                                            };
-
-                                            let mut serv = arc.write().await;
-                                            println!("Updated relay {} metadata with title '{}' and url '{}'", serv.mountpoint, metadata.title.as_ref().unwrap_or(&"".to_string()), metadata.url.as_ref().unwrap_or(&"".to_string()));
-                                            serv.metadata_vec = metadata_vec;
-                                            serv.metadata = Some(metadata);
-                                        } else {
-                                            println!("Unknown metadata format received from relay {}: `{}`", arc.read().await.mountpoint, meta_str);
-                                            arc.write().await.disconnect_flag = true;
-                                        }
-                                    } else {
-                                        println!(
-                                            "Invalid metadata parsed from relay {}",
-                                            arc.read().await.mountpoint
-                                        );
-                                        arc.write().await.disconnect_flag = true;
-                                    }
-                                }
-                            }
-                        }
-
-                        trimmed
-                    } else {
-                        data.to_vec()
-                    }
-                };
-
-                if !data.is_empty() {
-                    arc.read().await.stats.write().await.bytes_read += data.len();
-                    broadcast_to_clients(arc, data, queue_size, burst_size).await;
-                }
-            }
-
-            // Check if the source needs to be disconnected
-            decode_read != 0 && !decoder.is_finished() && !arc.read().await.disconnect_flag
-        }
+    let decode_read = match decoder.decode(data, slice, length) {
+        Ok(decode_read) => decode_read,
         Err(e) => {
             println!(
                 "An error occurred while decoding stream data from relay {}: {}",
@@ -1315,9 +1187,137 @@ async fn decode_thing(
                 e
             );
             arc.write().await.disconnect_flag = true;
-            false
+            return false;
         }
+    };
+
+    if decode_read == 0 {
+        return false;
     }
+
+    // Process any metadata, if it exists
+    let new_data: Vec<u8> = if meta_info.metaint != 0 {
+        data.to_vec()
+    } else {
+        let mut trimmed = Vec::new();
+        let mut position = 0;
+        let mut last_full: Option<Vec<u8>> = None;
+        while position < decode_read {
+            // Either reading in regular stream data
+            // Reading in the length of the metadata
+            // Or reading the metadata directly
+            if meta_info.remaining != 0 {
+                let frame_length = std::cmp::min(decode_read - position, meta_info.remaining);
+                if frame_length != 0 {
+                    trimmed.extend_from_slice(&data[position..position + frame_length]);
+                    meta_info.remaining -= frame_length;
+                    position += frame_length;
+                }
+            } else if meta_info.vec.is_empty() {
+                // Reading the length of the metadata segment
+                meta_info.vec.push(data[position]);
+                position += 1;
+            } else {
+                // Reading in metadata
+                let size = 1 + ((meta_info.vec[0] as usize) << 4);
+                let remaining_metadata =
+                    std::cmp::min(decode_read - position, size - meta_info.vec.len());
+                meta_info
+                    .vec
+                    .extend_from_slice(&data[position..position + remaining_metadata]);
+                position += remaining_metadata;
+
+                // If it's reached the max size, then copy it over to last_full
+                if meta_info.vec.len() == size {
+                    meta_info.remaining = meta_info.metaint;
+                    last_full = Some(meta_info.vec.clone());
+                    meta_info.vec.clear();
+                }
+            }
+        }
+
+        // Update the source's metadata
+        if let Some(metadata_vec) = last_full {
+            if !{
+                let serv_vec = &arc.read().await.metadata_vec;
+                serv_vec.len() == metadata_vec.len() && serv_vec.iter().eq(metadata_vec.iter())
+            } {
+                if metadata_vec[..] == [1; 0] {
+                    let mut serv = arc.write().await;
+                    println!(
+                        "Updated relay {} metadata with no title and url",
+                        serv.mountpoint
+                    );
+                    serv.metadata_vec = vec![0];
+                    serv.metadata = None;
+                } else {
+                    let cut = {
+                        let mut last = metadata_vec.len();
+                        while metadata_vec[last - 1] == 0 {
+                            last -= 1;
+                        }
+                        last
+                    };
+                    if let Ok(meta_str) = std::str::from_utf8(&metadata_vec[1..cut]) {
+                        let reg = Regex::new(r"^StreamTitle='(.+?)';StreamUrl='(.+?)';$").unwrap();
+                        if let Some(captures) = reg.captures(meta_str) {
+                            let metadata = IcyMetadata {
+                                title: {
+                                    let m_str = captures.get(1).unwrap().as_str();
+                                    if m_str.is_empty() {
+                                        None
+                                    } else {
+                                        Some(m_str.to_string())
+                                    }
+                                },
+                                url: {
+                                    let m_str = captures.get(2).unwrap().as_str();
+                                    if m_str.is_empty() {
+                                        None
+                                    } else {
+                                        Some(m_str.to_string())
+                                    }
+                                },
+                            };
+
+                            let mut serv = arc.write().await;
+                            println!(
+                                "Updated relay {} metadata with title '{}' and url '{}'",
+                                serv.mountpoint,
+                                metadata.title.as_ref().unwrap_or(&"".to_string()),
+                                metadata.url.as_ref().unwrap_or(&"".to_string())
+                            );
+                            serv.metadata_vec = metadata_vec;
+                            serv.metadata = Some(metadata);
+                        } else {
+                            println!(
+                                "Unknown metadata format received from relay {}: `{}`",
+                                arc.read().await.mountpoint,
+                                meta_str
+                            );
+                            arc.write().await.disconnect_flag = true;
+                        }
+                    } else {
+                        println!(
+                            "Invalid metadata parsed from relay {}",
+                            arc.read().await.mountpoint
+                        );
+                        arc.write().await.disconnect_flag = true;
+                    }
+                }
+            }
+        }
+
+        trimmed
+    };
+
+    if !new_data.is_empty() {
+        arc.read().await.stats.write().await.bytes_read += new_data.len();
+        broadcast_to_clients(arc, new_data, queue_size, burst_size).await;
+    }
+
+    // Check if the source needs to be disconnected
+    decode_read != 0 && !decoder.is_finished() && !arc.read().await.disconnect_flag
 }
 
 pub fn get_offset<'a>(
