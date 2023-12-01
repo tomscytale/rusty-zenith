@@ -224,119 +224,128 @@ pub async fn connect_and_redirect<'a>(
 ) -> Result<(Stream, Vec<u8>), Box<dyn Error>> {
     let mut str_url = url;
     let mut remaining_redirects = max_redirects;
+
     loop {
         let mut url = Url::parse(str_url.as_str())?;
-        if let Some(host) = url.host_str() {
-            let addr = {
-                if let Some(port) = url.port_or_known_default() {
-                    format!("{}:{}", host, port)
-                } else {
-                    host.to_string()
-                }
-            };
 
-            let mut stream = match url.scheme() {
-                "https" => {
-                    // Use tls
-                    let stream = TcpStream::connect(addr.clone()).await?;
-                    let cx = tokio_native_tls::TlsConnector::from(TlsConnector::builder().build()?);
-                    Stream::Tls(Box::new(cx.connect(host, stream).await?))
-                }
-                _ => Stream::Plain(TcpStream::connect(addr.clone()).await?),
-            };
-
-            // Build the path
-            let mut path = url.path().to_string();
-            if let Some(query) = url.query() {
-                path = format!("{}?{}", path, query);
-            }
-            if let Some(fragment) = url.fragment() {
-                path = format!("{}#{}", path, fragment);
-            }
-
-            // Write the message
-            let mut req_buf = Vec::new();
-            req_buf.extend_from_slice(format!("GET {} HTTP/1.1\r\n", path).as_bytes());
-            let mut auth_included = false;
-            for header in &headers {
-                req_buf.extend_from_slice(header.as_bytes());
-                req_buf.extend_from_slice(b"\r\n");
-                auth_included |= header.to_lowercase().starts_with("authorization:");
-            }
-            req_buf.extend_from_slice(format!("Host: {}\r\n", addr).as_bytes());
-            if !auth_included {
-                if let Some(passwd) = url.password() {
-                    let encoded = base64::encode(format!("{}:{}", url.username(), passwd));
-                    req_buf.extend_from_slice(
-                        format!("Authorization: Basic {}\r\n", encoded).as_bytes(),
-                    );
-                }
-            }
-            req_buf.extend_from_slice(b"\r\n");
-            stream.write_all(&req_buf).await?;
-            let mut buf = Vec::new();
-
-            // First time parsing the response
-            server::read_http_response(&mut stream, &mut buf, max_len, RorR::Response).await?;
-
-            let mut _headers = [httparse::EMPTY_HEADER; 32];
-            let mut res = httparse::Response::new(&mut _headers);
-
-            // Second time parsing the response
-            if res.parse(&buf)? == Status::Partial {
+        let host = match url.host_str() {
+            Some(host) => host,
+            None => {
                 return Err(Box::new(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Received an incomplete response",
+                    ErrorKind::AddrNotAvailable,
+                    format!("Invalid URL provided: {}", str_url),
                 )));
             }
+        };
 
-            match res.code {
-                Some(code) => {
-                    if code / 100 == 3 || code == 201 {
-                        if remaining_redirects == 0 {
-                            // Reached maximum number of redirects!
-                            return Err(Box::new(std::io::Error::new(
-                                ErrorKind::Other,
-                                "Maximum redirects reached",
-                            )));
-                        } else if let Some(location) = http::get_header("Location", res.headers) {
-                            // Try parsing it into a URL first
-                            let loc_str = std::str::from_utf8(location)?;
-                            if let Ok(mut redirect) = Url::parse(loc_str) {
-                                redirect.set_query(url.query());
-                                str_url = redirect.as_str().to_string();
-                            } else {
-                                if location[0] == b'/' {
-                                    url.set_path(loc_str);
-                                } else {
-                                    url.join(loc_str)?;
-                                }
-                                str_url = url.as_str().to_string();
-                            }
-
-                            remaining_redirects -= 1;
-                        } else {
-                            return Err(Box::new(std::io::Error::new(
-                                ErrorKind::Other,
-                                "Invalid Location",
-                            )));
-                        }
-                    } else {
-                        return Ok((stream, buf));
-                    }
-                }
-                None => {
-                    return Err(Box::new(std::io::Error::new(
-                        ErrorKind::Other,
-                        "Missing response code",
-                    )));
-                }
+        let addr = {
+            if let Some(port) = url.port_or_known_default() {
+                format!("{}:{}", host, port)
+            } else {
+                host.to_string()
             }
-        } else {
+        };
+
+        let mut stream = match url.scheme() {
+            "https" => {
+                // Use tls
+                let stream = TcpStream::connect(addr.clone()).await?;
+                let cx = tokio_native_tls::TlsConnector::from(TlsConnector::builder().build()?);
+                Stream::Tls(Box::new(cx.connect(host, stream).await?))
+            }
+            _ => Stream::Plain(TcpStream::connect(addr.clone()).await?),
+        };
+
+        // Build the path
+        let mut path = url.path().to_string();
+        if let Some(query) = url.query() {
+            path = format!("{}?{}", path, query);
+        }
+        if let Some(fragment) = url.fragment() {
+            path = format!("{}#{}", path, fragment);
+        }
+
+        // Write the message
+        let mut req_buf = Vec::new();
+        req_buf.extend_from_slice(format!("GET {} HTTP/1.1\r\n", path).as_bytes());
+        let mut auth_included = false;
+        for header in &headers {
+            req_buf.extend_from_slice(header.as_bytes());
+            req_buf.extend_from_slice(b"\r\n");
+            auth_included |= header.to_lowercase().starts_with("authorization:");
+        }
+        req_buf.extend_from_slice(format!("Host: {}\r\n", addr).as_bytes());
+        if !auth_included {
+            if let Some(passwd) = url.password() {
+                let encoded = base64::encode(format!("{}:{}", url.username(), passwd));
+                req_buf
+                    .extend_from_slice(format!("Authorization: Basic {}\r\n", encoded).as_bytes());
+            }
+        }
+        req_buf.extend_from_slice(b"\r\n");
+        stream.write_all(&req_buf).await?;
+        let mut buf = Vec::new();
+
+        // First time parsing the response
+        server::read_http_response(&mut stream, &mut buf, max_len, RorR::Response).await?;
+
+        let mut _headers = [httparse::EMPTY_HEADER; 32];
+        let mut res = httparse::Response::new(&mut _headers);
+
+        // Second time parsing the response
+        if res.parse(&buf)? == Status::Partial {
             return Err(Box::new(std::io::Error::new(
-                ErrorKind::AddrNotAvailable,
-                format!("Invalid URL provided: {}", str_url),
+                ErrorKind::Other,
+                "Received an incomplete response",
             )));
         }
+
+        let code = match res.code {
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Missing response code",
+                )));
+            }
+            Some(code) => code,
+        };
+
+        if code / 100 != 3 && code != 201 {
+            return Ok((stream, buf));
+        }
+
+        if remaining_redirects == 0 {
+            // Reached maximum number of redirects!
+            return Err(Box::new(std::io::Error::new(
+                ErrorKind::Other,
+                "Maximum redirects reached",
+            )));
+        }
+
+        let location = match http::get_header("Location", res.headers) {
+            Some(location) => location,
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Invalid Location",
+                )));
+            }
+        };
+
+        // Try parsing it into a URL first
+        let loc_str = std::str::from_utf8(location)?;
+        if let Ok(mut redirect) = Url::parse(loc_str) {
+            redirect.set_query(url.query());
+            str_url = redirect.as_str().to_string();
+        } else {
+            if location[0] == b'/' {
+                url.set_path(loc_str);
+            } else {
+                url.join(loc_str)?;
+            }
+            str_url = url.as_str().to_string();
+        }
+
+        remaining_redirects -= 1;
     }
 }
