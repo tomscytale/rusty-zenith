@@ -3,6 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::consts::{DEFAULT_CONTENT_TYPE, HTML_CONTENT_TYPE, JSON_CONTENT_TYPE};
 use httparse::Header;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -10,7 +11,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::http;
-use crate::structs::{IcyMetadata, Query, Server, Stream};
+use crate::structs::{IcyMetadata, Message, Query, Server, Stream};
 
 pub async fn do_admin(
     server: Arc<RwLock<Server>>,
@@ -20,6 +21,7 @@ pub async fn do_admin(
     path: String,
     headers: &mut [Header<'_>],
 ) -> Result<(), Box<dyn Error>> {
+    let body_404 = "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>";
     match path.as_str() {
         "/admin/metadata" => {
             let serv = server.read().await;
@@ -32,11 +34,18 @@ pub async fn do_admin(
             // Now check the query fields
             // Takes in mode, mount, song and url
             if let Some(queries) = queries {
-                match http::get_queries_for(vec!["mode", "mount", "song", "url"], &queries)[..].as_ref() {
-                    [ Some(mode), Some(mount), song, url ] if mode == "updinfo" => {
+                match http::get_queries_for(vec!["mode", "mount", "song", "url"], &queries)[..]
+                    .as_ref()
+                {
+                    [Some(mode), Some(mount), song, url] if mode == "updinfo" => {
                         match serv.sources.get(mount) {
                             Some(source) => {
-                                println!("Updated source {} metadata with title '{}' and url '{}'", mount, song.as_ref().unwrap_or(&"".to_string()), url.as_ref().unwrap_or(&"".to_string()));
+                                println!(
+                                    "Updated source {} metadata with title '{}' and url '{}'",
+                                    mount,
+                                    song.as_ref().unwrap_or(&"".to_string()),
+                                    url.as_ref().unwrap_or(&"".to_string())
+                                );
                                 let mut source = source.write().await;
                                 source.metadata = match (song, url) {
                                     (None, None) => None,
@@ -46,7 +55,7 @@ pub async fn do_admin(
                                     }),
                                 };
                                 source.metadata_vec = http::get_metadata_vec(&source.metadata);
-                                send_ok(stream, server_id, Some("text/plain")).await?;
+                                send_ok(stream, server_id, Some(DEFAULT_CONTENT_TYPE)).await?;
                             }
                             None => send_forbidden(stream, server_id, "Invalid mount").await?,
                         }
@@ -67,7 +76,7 @@ pub async fn do_admin(
 
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount"], &queries)[..].as_ref() {
-                    [ Some(mount) ] => {
+                    [Some(mount)] => {
                         if let Some(source) = serv.sources.get(mount) {
                             let mut clients: HashMap<Uuid, Value> = HashMap::new();
 
@@ -104,7 +113,7 @@ pub async fn do_admin(
 
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount", "fallback"], &queries)[..].as_ref() {
-                    [ Some(mount), fallback ] => {
+                    [Some(mount), fallback] => {
                         if let Some(source) = serv.sources.get(mount) {
                             source.write().await.fallback = fallback.clone();
 
@@ -134,14 +143,15 @@ pub async fn do_admin(
 
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount", "destination"], &queries)[..].as_ref() {
-                    [ Some(mount), Some(dest) ] => {
+                    [Some(mount), Some(dest)] => {
                         match (serv.sources.get(mount), serv.sources.get(dest)) {
                             (Some(source), Some(destination)) => {
                                 let mut from = source.write().await;
                                 let mut to = destination.write().await;
 
                                 for (uuid, client) in from.clients.drain() {
-                                    *client.read().await.source.write().await = to.mountpoint.clone();
+                                    *client.read().await.source.write().await =
+                                        to.mountpoint.clone();
                                     to.clients.insert(uuid, client);
                                 }
 
@@ -167,11 +177,19 @@ pub async fn do_admin(
 
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount", "id"], &queries)[..].as_ref() {
-                    [ Some(mount), Some(uuid_str) ] => {
+                    [Some(mount), Some(uuid_str)] => {
                         match (serv.sources.get(mount), Uuid::parse_str(uuid_str)) {
                             (Some(source), Ok(uuid)) => {
                                 if let Some(client) = source.read().await.clients.get(&uuid) {
-                                    drop(client.read().await.sender.write().await.send(Arc::new(Vec::new())));
+                                    drop(
+                                        client
+                                            .read()
+                                            .await
+                                            .sender
+                                            .write()
+                                            .await
+                                            .send(Arc::new(Vec::new())),
+                                    );
                                     println!("Killing client {}", uuid);
                                     send_ok(stream, server_id, None).await?;
                                 } else {
@@ -179,7 +197,9 @@ pub async fn do_admin(
                                 }
                             }
                             (None, _) => send_forbidden(stream, server_id, "Invalid mount").await?,
-                            (Some(_), Err(_)) => send_forbidden(stream, server_id, "Invalid id").await?,
+                            (Some(_), Err(_)) => {
+                                send_forbidden(stream, server_id, "Invalid id").await?
+                            }
                         }
                     }
                     _ => send_bad_request(stream, server_id).await?,
@@ -198,7 +218,7 @@ pub async fn do_admin(
 
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount"], &queries)[..].as_ref() {
-                    [ Some(mount) ] => {
+                    [Some(mount)] => {
                         if let Some(source) = serv.sources.get(mount) {
                             source.write().await.disconnect_flag = true;
 
@@ -264,7 +284,7 @@ pub async fn do_admin(
         "/api/mountinfo" => {
             if let Some(queries) = queries {
                 match http::get_queries_for(vec!["mount"], &queries)[..].as_ref() {
-                    [ Some(mount) ] => {
+                    [Some(mount)] => {
                         let serv = server.read().await;
                         if let Some(source) = serv.sources.get(mount) {
                             let source = source.read().await;
@@ -331,7 +351,17 @@ pub async fn do_admin(
             send_ok_if_valid(stream, server_id, &response).await?;
         }
         // Return 404
-        _ => http::send_not_found(stream, server_id, Some(("text/html; charset=utf-8", "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>"))).await?
+        _ => {
+            http::send_not_found(
+                stream,
+                server_id,
+                Some(Message::new(
+                    body_404.to_string(),
+                    Some(HTML_CONTENT_TYPE.to_string()),
+                )),
+            )
+            .await?
+        }
     }
     Ok(())
 }
@@ -341,11 +371,14 @@ async fn send_ok(
     server_id: &str,
     content_type: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    let c_type = content_type.unwrap_or("application/json");
+    let c_type = content_type.unwrap_or(JSON_CONTENT_TYPE);
     http::send_ok(
         stream,
         server_id,
-        Some((&(format!("{}; charset=utf-6", c_type)), "Success")),
+        Some(Message::new(
+            "Success".to_string(),
+            Some(c_type.to_string()),
+        )),
     )
     .await?;
     Ok(())
@@ -360,7 +393,10 @@ async fn send_ok_if_valid<T: Sized + Serialize>(
         http::send_ok(
             stream,
             server_id,
-            Some(("application/json; charset=utf-8", &serialized)),
+            Some(Message::new(
+                serialized.to_string(),
+                Some(JSON_CONTENT_TYPE.to_string()),
+            )),
         )
         .await?;
     } else {
@@ -377,7 +413,7 @@ async fn send_unauthorized(
     http::send_unauthorized(
         stream,
         server_id,
-        Some(("text/plain; charset=utf-8", value)),
+        Some(Message::new(value.to_string(), None)),
     )
     .await
 }
@@ -386,7 +422,7 @@ async fn send_bad_request(stream: &mut Stream, server_id: &str) -> Result<(), Bo
     http::send_bad_request(
         stream,
         server_id,
-        Some(("text/plain; charset=utf-8", "Invalid query")),
+        Some(Message::new("Invalid query".to_string(), None)),
     )
     .await
 }
@@ -396,5 +432,5 @@ async fn send_forbidden(
     server_id: &str,
     msg: &str,
 ) -> Result<(), Box<dyn Error>> {
-    http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", &msg))).await
+    http::send_forbidden(stream, server_id, Some(Message::new(msg.to_string(), None))).await
 }

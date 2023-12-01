@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::io::ErrorKind;
+use std::io::{Error as IOError, ErrorKind};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -396,29 +396,31 @@ impl StreamDecoder {
                         {
                             Some(cutoff) => cutoff,
                             None => {
-                                return Err(Box::new(std::io::Error::new(
+                                return Err(Box::new(IOError::new(
                                     ErrorKind::InvalidData,
                                     "Missing CRLF",
                                 )));
                             }
                         };
+
                         self.remainder = match std::str::from_utf8(&self.chunk[..cutoff]) {
                             Ok(res) => match usize::from_str_radix(res, 16) {
                                 Ok(hex) => hex,
                                 Err(e) => {
-                                    return Err(Box::new(std::io::Error::new(
+                                    return Err(Box::new(IOError::new(
                                         ErrorKind::InvalidData,
                                         format!("Invalid value provided for chunk size: {}", e),
-                                    )))
+                                    )));
                                 }
                             },
                             Err(e) => {
-                                return Err(Box::new(std::io::Error::new(
+                                return Err(Box::new(IOError::new(
                                     ErrorKind::InvalidData,
                                     format!("Could not parse chunk size: {}", e),
-                                )))
+                                )));
                             }
                         };
+
                         // Check if it's the last chunk
                         // Ignore trailers
                         if self.remainder != 0 {
@@ -439,7 +441,7 @@ impl StreamDecoder {
                         self.remainder = 1;
                         self.chunk.clear();
                     } else {
-                        return Err(Box::new(std::io::Error::new(
+                        return Err(Box::new(IOError::new(
                             ErrorKind::InvalidData,
                             "Missing CRLF from chunk",
                         )));
@@ -460,5 +462,31 @@ impl StreamDecoder {
 
     pub fn is_finished(&self) -> bool {
         self.encoding != TransferEncoding::Identity && self.remainder == 0
+    }
+}
+
+pub struct Message {
+    pub message: String,
+    pub charset: Option<String>,
+    pub content_type: Option<String>,
+}
+
+impl Default for Message {
+    fn default() -> Self {
+        Message {
+            message: "".to_string(),
+            charset: None,
+            content_type: None,
+        }
+    }
+}
+
+impl Message {
+    pub fn new(message: String, content_type: Option<String>) -> Self {
+        Message {
+            message,
+            charset: None,
+            content_type,
+        }
     }
 }

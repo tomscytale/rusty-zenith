@@ -35,3 +35,8 @@ pub const SOURCE_TIMEOUT: u64 = 10_000;
 pub const HTTP_MAX_LENGTH: usize = 8192;
 // The maximum number of redirects allowed, when fetching relays from another server/stream
 pub const HTTP_MAX_REDIRECTS: usize = 5;
+
+pub const DEFAULT_CHARSET: &str = "utf-8";
+pub const DEFAULT_CONTENT_TYPE: &str = "text/plain";
+pub const JSON_CONTENT_TYPE: &str = "application/json";
+pub const HTML_CONTENT_TYPE: &str = "text/html";

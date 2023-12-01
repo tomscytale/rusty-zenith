@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::ErrorKind;
+use std::io::{Error as IOError, ErrorKind};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -14,8 +14,8 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::structs::{
-    Client, ClientProperties, ClientStats, IcyMetadata, IcyProperties, MasterServer, Query,
-    ReqOrRes, RorR, Server, Source, Stream, StreamDecoder, TransferEncoding,
+    Client, ClientProperties, ClientStats, IcyMetadata, IcyProperties, MasterServer, Message,
+    Query, ReqOrRes, RorR, Server, Source, Stream, StreamDecoder, TransferEncoding,
 };
 use crate::{admin, http};
 
@@ -50,13 +50,14 @@ pub async fn handle_source_put(
     headers: &mut [Header<'_>],
 ) -> Result<(), Box<dyn Error>> {
     // Check for authorization
+    let invalid_mountpoint_message = Some(Message::new("Invalid mountpoint".to_string(), None));
     {
         let serv = server.read().await;
         if let Some(value) = http::has_failed_auth(headers, &serv) {
             return http::send_unauthorized(
                 stream,
                 server_id,
-                Some(("text/plain; charset=utf-8", value)),
+                Some(Message::new(value.to_string(), None)),
             )
             .await;
         }
@@ -73,12 +74,7 @@ pub async fn handle_source_put(
         || path == "/api"
         || path.starts_with("/api/")
     {
-        return http::send_forbidden(
-            stream,
-            server_id,
-            Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
-        )
-        .await;
+        return http::send_forbidden(stream, server_id, invalid_mountpoint_message).await;
     }
 
     // Check if it is valid
@@ -87,28 +83,13 @@ pub async fn handle_source_put(
     if let Some(parent) = dir.parent() {
         if let Some(parent_str) = parent.to_str() {
             if parent_str != "/" {
-                return http::send_forbidden(
-                    stream,
-                    server_id,
-                    Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
-                )
-                .await;
+                return http::send_forbidden(stream, server_id, invalid_mountpoint_message).await;
             }
         } else {
-            return http::send_forbidden(
-                stream,
-                server_id,
-                Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
-            )
-            .await;
+            return http::send_forbidden(stream, server_id, invalid_mountpoint_message).await;
         }
     } else {
-        return http::send_forbidden(
-            stream,
-            server_id,
-            Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
-        )
-        .await;
+        return http::send_forbidden(stream, server_id, invalid_mountpoint_message).await;
     }
 
     // Sources must have a content type
@@ -119,7 +100,7 @@ pub async fn handle_source_put(
             return http::send_forbidden(
                 stream,
                 server_id,
-                Some(("text/plain; charset=utf-8", "No Content-type provided")),
+                Some(Message::new("No Content-type provided".to_string(), None)),
             )
             .await;
         }
@@ -128,12 +109,7 @@ pub async fn handle_source_put(
     let mut serv = server.write().await;
     // Check if the mountpoint is already in use
     if serv.sources.contains_key(path) {
-        return http::send_forbidden(
-            stream,
-            server_id,
-            Some(("text/plain; charset=utf-8", "Invalid mountpoint")),
-        )
-        .await;
+        return http::send_forbidden(stream, server_id, invalid_mountpoint_message).await;
     }
 
     // Check if the max number of sources has been reached
@@ -143,7 +119,7 @@ pub async fn handle_source_put(
         return http::send_forbidden(
             stream,
             server_id,
-            Some(("text/plain; charset=utf-8", "Too many sources connected")),
+            Some(Message::new("Too many sources connected".to_string(), None)),
         )
         .await;
     }
@@ -171,9 +147,9 @@ pub async fn handle_source_put(
                         return http::send_bad_request(
                             stream,
                             server_id,
-                            Some((
-                                "text/plain; charset=utf-8",
-                                "Unknown unicode found in Content-Length",
+                            Some(Message::new(
+                                "Unknown unicode found in Content-Length".to_string(),
+                                None,
                             )),
                         )
                         .await;
@@ -185,7 +161,7 @@ pub async fn handle_source_put(
                         return http::send_bad_request(
                             stream,
                             server_id,
-                            Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
+                            Some(Message::new("Invalid Content-Length".to_string(), None)),
                         )
                         .await;
                     }
@@ -203,7 +179,10 @@ pub async fn handle_source_put(
                 return http::send_bad_request(
                     stream,
                     server_id,
-                    Some(("text/plain; charset=utf-8", "Unsupported transfer encoding")),
+                    Some(Message::new(
+                        "Unsupported transfer encoding".to_string(),
+                        None,
+                    )),
                 )
                 .await;
             }
@@ -217,9 +196,9 @@ pub async fn handle_source_put(
                 return http::send_bad_request(
                     stream,
                     server_id,
-                    Some((
-                        "text/plain; charset=utf-8",
-                        "Expected 100-continue in Expect header",
+                    Some(Message::new(
+                        "Expected 100-continue in Expect header".to_string(),
+                        None,
                     )),
                 )
                 .await;
@@ -228,9 +207,9 @@ pub async fn handle_source_put(
                 return http::send_bad_request(
                     stream,
                     server_id,
-                    Some((
-                        "text/plain; charset=utf-8",
-                        "PUT request must come with Expect header",
+                    Some(Message::new(
+                        "PUT request must come with Expect header".to_string(),
+                        None,
                     )),
                 )
                 .await;
@@ -424,7 +403,10 @@ pub async fn handle_get(
             http::send_forbidden(
                 stream,
                 server_id,
-                Some(("text/plain; charset=utf-8", "Too many listeners connected")),
+                Some(Message::new(
+                    "Too many listeners connected".to_string(),
+                    None,
+                )),
             )
             .await?;
             return Ok(());
@@ -825,7 +807,7 @@ async fn write_to_client(
     metalen: usize,
     data: &[u8],
     metadata: &[u8],
-) -> Result<(), std::io::Error> {
+) -> Result<(), IOError> {
     let new_sent = *sent_count + data.len();
     // Consume it here or something
     let send: &[u8];
@@ -896,7 +878,7 @@ pub async fn handle_connection(
     match method {
         // Some info about the protocol is provided here: https://gist.github.com/ePirat/adc3b8ba00d85b7e3870
         "SOURCE" | "PUT" => {
-            return handle_source_put(
+            handle_source_put(
                 &server,
                 &mut stream,
                 &server_id,
@@ -906,37 +888,41 @@ pub async fn handle_connection(
                 &path,
                 headers,
             )
-            .await;
+            .await
         }
-        "GET" => {
-            return handle_get(server, &mut stream, &server_id, queries, path, headers).await;
-        }
+        "GET" => handle_get(server, &mut stream, &server_id, queries, path, headers).await,
         _ => {
             // Unknown
-            stream
-                .write_all(b"HTTP/1.0 405 Method Not Allowed\r\n")
-                .await?;
-            stream
-                .write_all((format!("Server: {}\r\n", server_id)).as_bytes())
-                .await?;
-            stream.write_all(b"Connection: Close\r\n").await?;
-            stream.write_all(b"Allow: GET, SOURCE\r\n").await?;
-            stream
-                .write_all((format!("Date: {}\r\n", fmt_http_date(SystemTime::now()))).as_bytes())
-                .await?;
-            stream
-                .write_all(b"Cache-Control: no-cache, no-store\r\n")
-                .await?;
-            stream
-                .write_all(b"Expires: Mon, 26 Jul 1997 05:00:00 GMT\r\n")
-                .await?;
-            stream.write_all(b"Pragma: no-cache\r\n").await?;
-            stream
-                .write_all(b"Access-Control-Allow-Origin: *\r\n\r\n")
-                .await?;
+            handle_method_not_allowed(server_id, &mut stream).await
         }
     }
+}
 
+async fn handle_method_not_allowed(
+    server_id: String,
+    stream: &mut Stream,
+) -> Result<(), Box<dyn Error>> {
+    stream
+        .write_all(b"HTTP/1.0 405 Method Not Allowed\r\n")
+        .await?;
+    stream
+        .write_all((format!("Server: {}\r\n", server_id)).as_bytes())
+        .await?;
+    stream.write_all(b"Connection: Close\r\n").await?;
+    stream.write_all(b"Allow: GET, SOURCE\r\n").await?;
+    stream
+        .write_all((format!("Date: {}\r\n", fmt_http_date(SystemTime::now()))).as_bytes())
+        .await?;
+    stream
+        .write_all(b"Cache-Control: no-cache, no-store\r\n")
+        .await?;
+    stream
+        .write_all(b"Expires: Mon, 26 Jul 1997 05:00:00 GMT\r\n")
+        .await?;
+    stream.write_all(b"Pragma: no-cache\r\n").await?;
+    stream
+        .write_all(b"Access-Control-Allow-Origin: *\r\n\r\n")
+        .await?;
     Ok(())
 }
 
@@ -958,13 +944,13 @@ pub async fn relay_mountpoint(
     match res.code {
         Some(200) => (),
         Some(code) => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("Invalid response: {}", code),
             )));
         }
         None => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "Missing response code",
             )));
@@ -973,7 +959,7 @@ pub async fn relay_mountpoint(
 
     // checking if our peer is really an icecast server
     if http::get_header("icy-name", res.headers).is_none() {
-        return Err(Box::new(std::io::Error::new(
+        return Err(Box::new(IOError::new(
             ErrorKind::Other,
             "Is this a valid icecast stream?",
         )));
@@ -989,14 +975,14 @@ pub async fn relay_mountpoint(
                 Ok(string) => match string.parse::<usize>() {
                     Ok(length) => StreamDecoder::new(TransferEncoding::Length(length)),
                     Err(_) => {
-                        return Err(Box::new(std::io::Error::new(
+                        return Err(Box::new(IOError::new(
                             ErrorKind::InvalidData,
                             "Invalid Content-Length",
                         )));
                     }
                 },
                 Err(_) => {
-                    return Err(Box::new(std::io::Error::new(
+                    return Err(Box::new(IOError::new(
                         ErrorKind::InvalidData,
                         "Unknown unicode found in Content-Length",
                     )));
@@ -1006,7 +992,7 @@ pub async fn relay_mountpoint(
         (Some(b"chunked"), None) => StreamDecoder::new(TransferEncoding::Chunked),
         (Some(b"identity"), None) | (None, None) => StreamDecoder::new(TransferEncoding::Identity),
         _ => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::InvalidData,
                 "Unsupported Transfer-Encoding",
             )));
@@ -1017,7 +1003,7 @@ pub async fn relay_mountpoint(
     let mut properties = match http::get_header("Content-Type", res.headers) {
         Some(content_type) => IcyProperties::new(std::str::from_utf8(content_type)?.to_string()),
         None => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "No Content-Type provided",
             )));
@@ -1038,18 +1024,18 @@ pub async fn relay_mountpoint(
     // The source is not needed if the map already has one. TODO Try using try_insert if it's stable in the future
     if serv.sources.contains_key(&path) {
         // The error handling in this program is absolutely awful
-        Err(Box::new(std::io::Error::new(
+        Err(Box::new(IOError::new(
             ErrorKind::Other,
             "A source with the same mountpoint already exists",
         )))
     } else {
         if serv.relay_count >= master_server.relay_limit {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "The server relay limit has been reached",
             )));
         } else if serv.sources.len() >= serv.properties.limits.total_sources {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "The server total source limit has been reached",
             )));
@@ -1315,7 +1301,7 @@ pub fn get_offset<'a>(
     let body_offset = match res.parse(message)? {
         Status::Complete(offset) => offset,
         Status::Partial => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "Received an incomplete response",
             )));
@@ -1380,14 +1366,14 @@ pub async fn read_http_response<'a>(
         match res.parse(buffer) {
             Ok(Status::Complete(offset)) => return Ok(offset),
             Ok(Status::Partial) if buffer.len() > max_len => {
-                return Err(Box::new(std::io::Error::new(
+                return Err(Box::new(IOError::new(
                     ErrorKind::Other,
                     "Request exceeded the maximum allowed length",
                 )));
             }
             Ok(Status::Partial) => (),
             Err(e) => {
-                return Err(Box::new(std::io::Error::new(
+                return Err(Box::new(IOError::new(
                     ErrorKind::InvalidData,
                     format!("Received an invalid request: {}", e),
                 )));

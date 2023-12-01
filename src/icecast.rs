@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::ErrorKind;
+use std::io::{Error as IOError, ErrorKind};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -154,7 +154,7 @@ async fn master_server_mountpoints(
             parsed.parse::<usize>()?
         }
         None => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "No Content-Length specified",
             )));
@@ -164,13 +164,13 @@ async fn master_server_mountpoints(
     match res.code {
         Some(200) => (),
         Some(code) => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("Invalid response: {} {}", code, res.reason.unwrap()),
             )));
         }
         None => {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "Missing response code",
             )));
@@ -191,13 +191,13 @@ async fn master_server_mountpoints(
 
         // Not guaranteed but most likely EOF or some premature closure
         if read == 0 {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::UnexpectedEof,
                 "Response body is less than specified",
             )));
         } else if read > len {
             // Read too much?
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::InvalidData,
                 "Response body is larger than specified",
             )));
@@ -231,7 +231,7 @@ pub async fn connect_and_redirect<'a>(
         let host = match url.host_str() {
             Some(host) => host,
             None => {
-                return Err(Box::new(std::io::Error::new(
+                return Err(Box::new(IOError::new(
                     ErrorKind::AddrNotAvailable,
                     format!("Invalid URL provided: {}", str_url),
                 )));
@@ -294,7 +294,7 @@ pub async fn connect_and_redirect<'a>(
 
         // Second time parsing the response
         if res.parse(&buf)? == Status::Partial {
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "Received an incomplete response",
             )));
@@ -302,7 +302,7 @@ pub async fn connect_and_redirect<'a>(
 
         let code = match res.code {
             None => {
-                return Err(Box::new(std::io::Error::new(
+                return Err(Box::new(IOError::new(
                     ErrorKind::Other,
                     "Missing response code",
                 )));
@@ -316,7 +316,7 @@ pub async fn connect_and_redirect<'a>(
 
         if remaining_redirects == 0 {
             // Reached maximum number of redirects!
-            return Err(Box::new(std::io::Error::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 "Maximum redirects reached",
             )));
@@ -325,10 +325,7 @@ pub async fn connect_and_redirect<'a>(
         let location = match http::get_header("Location", res.headers) {
             Some(location) => location,
             None => {
-                return Err(Box::new(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Invalid Location",
-                )));
+                return Err(Box::new(IOError::new(ErrorKind::Other, "Invalid Location")));
             }
         };
 

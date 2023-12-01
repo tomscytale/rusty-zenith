@@ -1,12 +1,14 @@
 use std::error::Error;
+use std::string::ToString;
 use std::time::SystemTime;
 
+use crate::consts::{DEFAULT_CHARSET, DEFAULT_CONTENT_TYPE};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use regex::Regex;
 use tokio::sync::RwLockReadGuard;
 
-use crate::structs::{IcyMetadata, Query, Server, ServerProperties, Stream};
+use crate::structs::{IcyMetadata, Message, Query, Server, ServerProperties, Stream};
 
 pub fn has_failed_auth<'a>(
     headers: &'a mut [Header<'_>],
@@ -56,28 +58,39 @@ async fn send(
     stream: &mut Stream,
     id: &str,
     status: &[u8],
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
     extra_headers: Option<&[u8]>,
 ) -> Result<(), Box<dyn Error>> {
     stream.write_all(status).await?;
     stream
-        .write_all((format!("Server: {}\r\n", id)).as_bytes())
+        .write_all(format!("Server: {}\r\n", id).as_bytes())
         .await?;
     stream.write_all(b"Connection: Close\r\n").await?;
-    if let Some((content_type, text)) = message {
-        stream
-            .write_all((format!("Content-Type: {}\r\n", content_type)).as_bytes())
-            .await?;
-        stream
-            .write_all((format!("Content-Length: {}\r\n", text.len())).as_bytes())
-            .await?;
-    }
+    let text = match message {
+        Some(msg) => {
+            stream
+                .write_all(
+                    format!(
+                        "Content-Type: {}; charset={}\r\n",
+                        msg.content_type.unwrap_or(DEFAULT_CONTENT_TYPE.to_string()),
+                        msg.charset.unwrap_or(DEFAULT_CHARSET.to_string())
+                    )
+                    .as_bytes(),
+                )
+                .await?;
+            stream
+                .write_all(format!("Content-Length: {}\r\n", msg.message.len()).as_bytes())
+                .await?;
+            Some(msg.message)
+        }
+        None => None,
+    };
     if let Some(extra_header) = extra_headers {
         stream.write_all(extra_header).await?;
     }
     server_info(stream).await?;
-    if let Some((_, text)) = message {
-        stream.write_all(text.as_bytes()).await?;
+    if let Some(m) = text {
+        stream.write_all(m.as_bytes()).await?
     }
 
     Ok(())
@@ -86,7 +99,7 @@ async fn send(
 pub async fn send_unauthorized(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(
         stream,
@@ -101,7 +114,7 @@ pub async fn send_unauthorized(
 pub async fn send_forbidden(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(stream, id, b"HTTP/1.0 403 Forbidden\r\n", message, None).await
 }
@@ -109,7 +122,7 @@ pub async fn send_forbidden(
 pub async fn send_ok(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(stream, id, b"HTTP/1.0 200 OK\r\n", message, None).await
 }
@@ -117,7 +130,7 @@ pub async fn send_ok(
 pub async fn send_bad_request(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(stream, id, b"HTTP/1.0 400 Bad Request\r\n", message, None).await
 }
@@ -129,7 +142,7 @@ pub async fn send_continue(stream: &mut Stream, id: &str) -> Result<(), Box<dyn 
 pub async fn send_not_found(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(
         stream,
@@ -143,7 +156,7 @@ pub async fn send_not_found(
 
 pub async fn server_info(stream: &mut Stream) -> Result<(), Box<dyn Error>> {
     stream
-        .write_all((format!("Date: {}\r\n", fmt_http_date(SystemTime::now()))).as_bytes())
+        .write_all(format!("Date: {}\r\n", fmt_http_date(SystemTime::now())).as_bytes())
         .await?;
     stream
         .write_all(b"Cache-Control: no-cache, no-store\r\n")
@@ -162,7 +175,7 @@ pub async fn server_info(stream: &mut Stream) -> Result<(), Box<dyn Error>> {
 pub async fn send_internal_error(
     stream: &mut Stream,
     id: &str,
-    message: Option<(&str, &str)>,
+    message: Option<Message>,
 ) -> Result<(), Box<dyn Error>> {
     send(
         stream,
