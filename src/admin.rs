@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use httparse::Header;
+use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -83,11 +84,7 @@ pub async fn do_admin(
                                 clients.insert(properties.id, value);
                             }
 
-                            if let Ok(serialized) = serde_json::to_string(&clients) {
-                                http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
-                            } else {
-                                http::send_internal_error(stream, server_id, None).await?;
-                            }
+                            send_ok_if_valid(stream, server_id, &clients).await?;
                         } else {
                             http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
                         }
@@ -241,11 +238,7 @@ pub async fn do_admin(
                 sources.insert(source.mountpoint.clone(), value);
             }
 
-            if let Ok(serialized) = serde_json::to_string(&sources) {
-                http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
-            } else {
-                http::send_internal_error(stream, server_id, None).await?;
-            }
+            send_ok_if_valid(stream, server_id, &sources).await?;
         }
         "/api/serverinfo" => {
             let serv = server.read().await;
@@ -266,11 +259,7 @@ pub async fn do_admin(
 							"current_listeners": serv.clients.len()
 						} );
 
-            if let Ok(serialized) = serde_json::to_string(&info) {
-                http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
-            } else {
-                http::send_internal_error(stream, server_id, None).await?;
-            }
+            send_ok_if_valid(stream, server_id, &info).await?;
         }
         "/api/mountinfo" => {
             if let Some(queries) = queries {
@@ -347,6 +336,24 @@ pub async fn do_admin(
         }
         // Return 404
         _ => http::send_not_found(stream, server_id, Some(("text/html; charset=utf-8", "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>"))).await?
+    }
+    Ok(())
+}
+
+async fn send_ok_if_valid<T: Sized + Serialize>(
+    stream: &mut Stream,
+    server_id: &str,
+    data: &T,
+) -> Result<(), Box<dyn Error>> {
+    if let Ok(serialized) = serde_json::to_string(data) {
+        http::send_ok(
+            stream,
+            server_id,
+            Some(("application/json; charset=utf-8", &serialized)),
+        )
+            .await?;
+    } else {
+        http::send_internal_error(stream, server_id, None).await?;
     }
     Ok(())
 }
