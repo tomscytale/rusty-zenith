@@ -351,7 +351,7 @@ async fn send_ok_if_valid<T: Sized + Serialize>(
             server_id,
             Some(("application/json; charset=utf-8", &serialized)),
         )
-            .await?;
+        .await?;
     } else {
         http::send_internal_error(stream, server_id, None).await?;
     }

@@ -392,39 +392,40 @@ impl StreamDecoder {
                     index += 1;
                     if self.chunk.windows(2).nth_back(0) == Some(b"\r\n") {
                         // Ignore chunk extensions
-                        if let Some(cutoff) =
-                            self.chunk.iter().position(|&x| x == b';' || x == b'\r')
+                        let cutoff = match self.chunk.iter().position(|&x| x == b';' || x == b'\r')
                         {
-                            self.remainder = match std::str::from_utf8(&self.chunk[..cutoff]) {
-                                Ok(res) => match usize::from_str_radix(res, 16) {
-                                    Ok(hex) => hex,
-                                    Err(e) => {
-                                        return Err(Box::new(std::io::Error::new(
-                                            ErrorKind::InvalidData,
-                                            format!("Invalid value provided for chunk size: {}", e),
-                                        )))
-                                    }
-                                },
+                            Some(cutoff) => cutoff,
+                            None => {
+                                return Err(Box::new(std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    "Missing CRLF",
+                                )));
+                            }
+                        };
+                        self.remainder = match std::str::from_utf8(&self.chunk[..cutoff]) {
+                            Ok(res) => match usize::from_str_radix(res, 16) {
+                                Ok(hex) => hex,
                                 Err(e) => {
                                     return Err(Box::new(std::io::Error::new(
                                         ErrorKind::InvalidData,
-                                        format!("Could not parse chunk size: {}", e),
+                                        format!("Invalid value provided for chunk size: {}", e),
                                     )))
                                 }
-                            };
-                            // Check if it's the last chunk
-                            // Ignore trailers
-                            if self.remainder != 0 {
-                                // +2 for remainder
-                                // +2 for extra CRLF
-                                self.remainder += 4;
-                                self.chunk.clear();
+                            },
+                            Err(e) => {
+                                return Err(Box::new(std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    format!("Could not parse chunk size: {}", e),
+                                )))
                             }
-                        } else {
-                            return Err(Box::new(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "Missing CRLF",
-                            )));
+                        };
+                        // Check if it's the last chunk
+                        // Ignore trailers
+                        if self.remainder != 0 {
+                            // +2 for remainder
+                            // +2 for extra CRLF
+                            self.remainder += 4;
+                            self.chunk.clear();
                         }
                     }
                 }
