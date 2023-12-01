@@ -25,7 +25,7 @@ pub async fn do_admin(
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             // Authentication passed
@@ -46,23 +46,23 @@ pub async fn do_admin(
                                     }),
                                 };
                                 source.metadata_vec = http::get_metadata_vec(&source.metadata);
-                                http::send_ok(stream, server_id, Some(("text/plain; charset=utf-8", "Success"))).await?;
+                                send_ok(stream, server_id, Some("text/plain")).await?;
                             }
-                            None => http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
+                            None => send_forbidden(stream, server_id, "Invalid mount").await?,
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/listclients" => {
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             if let Some(queries) = queries {
@@ -86,20 +86,20 @@ pub async fn do_admin(
 
                             send_ok_if_valid(stream, server_id, &clients).await?;
                         } else {
-                            http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                            send_forbidden(stream, server_id, "Invalid mount").await?;
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/fallbacks" => {
             let serv = server.read().await;
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             if let Some(queries) = queries {
@@ -113,23 +113,23 @@ pub async fn do_admin(
                             } else {
                                 println!("Unset the fallback for {}", mount);
                             }
-                            http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                            send_ok(stream, server_id, None).await?;
                         } else {
-                            http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                            send_forbidden(stream, server_id, "Invalid mount").await?;
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/moveclients" => {
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             if let Some(queries) = queries {
@@ -146,23 +146,23 @@ pub async fn do_admin(
                                 }
 
                                 println!("Moved clients from {} to {}", mount, dest);
-                                http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                send_ok(stream, server_id, None).await?;
                             }
-                            _ => http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
+                            _ => send_forbidden(stream, server_id, "Invalid mount").await?,
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/killclient" => {
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             if let Some(queries) = queries {
@@ -173,27 +173,27 @@ pub async fn do_admin(
                                 if let Some(client) = source.read().await.clients.get(&uuid) {
                                     drop(client.read().await.sender.write().await.send(Arc::new(Vec::new())));
                                     println!("Killing client {}", uuid);
-                                    http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                                    send_ok(stream, server_id, None).await?;
                                 } else {
-                                    http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?;
+                                    send_forbidden(stream, server_id, "Invalid id").await?
                                 }
                             }
-                            (None, _) => http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?,
-                            (Some(_), Err(_)) => http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid id"))).await?,
+                            (None, _) => send_forbidden(stream, server_id, "Invalid mount").await?,
+                            (Some(_), Err(_)) => send_forbidden(stream, server_id, "Invalid id").await?,
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/killsource" => {
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             if let Some(queries) = queries {
@@ -203,23 +203,23 @@ pub async fn do_admin(
                             source.write().await.disconnect_flag = true;
 
                             println!("Killing source {}", mount);
-                            http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", "Success"))).await?;
+                            send_ok(stream, server_id, None).await?;
                         } else {
-                            http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                            send_forbidden(stream, server_id, "Invalid mount").await?;
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/admin/listmounts" => {
             let serv = server.read().await;
             // Check for authorization
             if let Some(value) = http::do_auth(headers, &serv) {
-                return http::send_unauthorized(stream, server_id, Some(("text/plain; charset=utf-8", value))).await;
+                return send_unauthorized(stream, server_id, value).await;
             }
 
             let mut sources: HashMap<String, Value> = HashMap::new();
@@ -288,20 +288,16 @@ pub async fn do_admin(
 											"current_listeners": source.clients.len()
 										} );
 
-                            if let Ok(serialized) = serde_json::to_string(&info) {
-                                http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", &serialized))).await?;
-                            } else {
-                                http::send_internal_error(stream, server_id, None).await?;
-                            }
+                            send_ok_if_valid(stream, server_id, &info).await?;
                         } else {
-                            http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid mount"))).await?;
+                            send_forbidden(stream, server_id, "Invalid mount").await?;
                         }
                     }
-                    _ => http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?,
+                    _ => send_bad_request(stream, server_id).await?,
                 }
             } else {
                 // Bad request
-                http::send_bad_request(stream, server_id, Some(("text/plain; charset=utf-8", "Invalid query"))).await?;
+                send_bad_request(stream, server_id).await?;
             }
         }
         "/api/stats" => {
@@ -332,11 +328,26 @@ pub async fn do_admin(
 							"session_bytes_sent": total_bytes_sent
 						} );
 
-            http::send_ok(stream, server_id, Some(("application/json; charset=utf-8", &response.to_string()))).await?;
+            send_ok_if_valid(stream, server_id, &response).await?;
         }
         // Return 404
         _ => http::send_not_found(stream, server_id, Some(("text/html; charset=utf-8", "<html><head><title>Error 404</title></head><body><b>404 - The file you requested could not be found</b></body></html>"))).await?
     }
+    Ok(())
+}
+
+async fn send_ok(
+    stream: &mut Stream,
+    server_id: &str,
+    content_type: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let c_type = content_type.unwrap_or("application/json");
+    http::send_ok(
+        stream,
+        server_id,
+        Some((&(format!("{}; charset=utf-6", c_type)), "Success")),
+    )
+    .await?;
     Ok(())
 }
 
@@ -356,4 +367,34 @@ async fn send_ok_if_valid<T: Sized + Serialize>(
         http::send_internal_error(stream, server_id, None).await?;
     }
     Ok(())
+}
+
+async fn send_unauthorized(
+    stream: &mut Stream,
+    server_id: &str,
+    value: &str,
+) -> Result<(), Box<dyn Error>> {
+    http::send_unauthorized(
+        stream,
+        server_id,
+        Some(("text/plain; charset=utf-8", value)),
+    )
+    .await
+}
+
+async fn send_bad_request(stream: &mut Stream, server_id: &str) -> Result<(), Box<dyn Error>> {
+    http::send_bad_request(
+        stream,
+        server_id,
+        Some(("text/plain; charset=utf-8", "Invalid query")),
+    )
+    .await
+}
+
+async fn send_forbidden(
+    stream: &mut Stream,
+    server_id: &str,
+    msg: &str,
+) -> Result<(), Box<dyn Error>> {
+    http::send_forbidden(stream, server_id, Some(("text/plain; charset=utf-8", &msg))).await
 }
