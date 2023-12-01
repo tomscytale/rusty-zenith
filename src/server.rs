@@ -52,7 +52,7 @@ pub async fn handle_source_put(
     // Check for authorization
     {
         let serv = server.read().await;
-        if let Some(value) = http::do_auth(headers, &serv) {
+        if let Some(value) = http::has_failed_auth(headers, &serv) {
             return http::send_unauthorized(
                 stream,
                 server_id,

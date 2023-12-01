@@ -24,7 +24,7 @@ pub async fn do_admin(
         "/admin/metadata" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -61,7 +61,7 @@ pub async fn do_admin(
         "/admin/listclients" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -98,7 +98,7 @@ pub async fn do_admin(
         }
         "/admin/fallbacks" => {
             let serv = server.read().await;
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -128,7 +128,7 @@ pub async fn do_admin(
         "/admin/moveclients" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -161,7 +161,7 @@ pub async fn do_admin(
         "/admin/killclient" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -192,7 +192,7 @@ pub async fn do_admin(
         "/admin/killsource" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 
@@ -218,7 +218,7 @@ pub async fn do_admin(
         "/admin/listmounts" => {
             let serv = server.read().await;
             // Check for authorization
-            if let Some(value) = http::do_auth(headers, &serv) {
+            if let Some(value) = http::has_failed_auth(headers, &serv) {
                 return send_unauthorized(stream, server_id, value).await;
             }
 

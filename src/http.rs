@@ -8,7 +8,7 @@ use tokio::sync::RwLockReadGuard;
 
 use crate::structs::{IcyMetadata, Query, Server, ServerProperties, Stream};
 
-pub fn do_auth<'a>(
+pub fn has_failed_auth<'a>(
     headers: &'a mut [Header<'_>],
     serv: &'a RwLockReadGuard<'_, Server>,
 ) -> Option<&'a str> {
