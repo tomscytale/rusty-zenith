@@ -165,20 +165,8 @@ pub async fn handle_source_put(
         ) {
             (Some(b"identity"), Some(value)) | (None, Some(value)) => {
                 // Use content length decoder
-                match std::str::from_utf8(value) {
-                    Ok(string) => match string.parse::<usize>() {
-                        Ok(length) => {
-                            decoder = StreamDecoder::new(TransferEncoding::Length(length))
-                        }
-                        Err(_) => {
-                            return http::send_bad_request(
-                                stream,
-                                server_id,
-                                Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
-                            )
-                            .await;
-                        }
-                    },
+                let string = match std::str::from_utf8(value) {
+                    Ok(string) => string,
                     Err(_) => {
                         return http::send_bad_request(
                             stream,
@@ -190,7 +178,18 @@ pub async fn handle_source_put(
                         )
                         .await;
                     }
-                }
+                };
+                decoder = match string.parse::<usize>() {
+                    Ok(length) => StreamDecoder::new(TransferEncoding::Length(length)),
+                    Err(_) => {
+                        return http::send_bad_request(
+                            stream,
+                            server_id,
+                            Some(("text/plain; charset=utf-8", "Invalid Content-Length")),
+                        )
+                        .await;
+                    }
+                };
             }
             (Some(b"chunked"), None) => {
                 // Use chunked decoder
