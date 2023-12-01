@@ -50,14 +50,16 @@ pub async fn handle_source_put(
     headers: &mut [Header<'_>],
 ) -> Result<(), Box<dyn Error>> {
     // Check for authorization
-    let serv = &server.read().await;
-    if let Some(value) = http::do_auth(headers, serv).await {
-        return http::send_unauthorized(
-            stream,
-            server_id,
-            Some(("text/plain; charset=utf-8", value)),
-        )
-        .await;
+    {
+        let serv = server.read().await;
+        if let Some(value) = http::do_auth(headers, &serv) {
+            return http::send_unauthorized(
+                stream,
+                server_id,
+                Some(("text/plain; charset=utf-8", value)),
+            )
+            .await;
+        }
     }
 
     // http://example.com/radio == http://example.com/radio/
