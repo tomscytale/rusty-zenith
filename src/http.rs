@@ -2,12 +2,13 @@ use std::error::Error;
 use std::string::ToString;
 use std::time::SystemTime;
 
-use crate::consts::{DEFAULT_CHARSET, DEFAULT_CONTENT_TYPE};
+use base64::{engine::general_purpose, Engine as _};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use regex::Regex;
 use tokio::sync::RwLockReadGuard;
 
+use crate::consts::{DEFAULT_CHARSET, DEFAULT_CONTENT_TYPE};
 use crate::structs::{IcyMetadata, Message, Query, Server, ServerProperties, Stream};
 
 pub fn has_failed_auth<'a>(
@@ -33,9 +34,10 @@ pub fn get_basic_auth(headers: &[Header]) -> Option<(String, String)> {
             Regex::new(r"^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$")
                 .unwrap();
         if let Some(capture) = reg.captures(std::str::from_utf8(auth).unwrap()) {
-            if let Some((name, pass)) = std::str::from_utf8(&base64::decode(&capture[1]).unwrap())
-                .unwrap()
-                .split_once(':')
+            if let Some((name, pass)) =
+                std::str::from_utf8(&general_purpose::STANDARD.decode(&capture[1]).unwrap())
+                    .unwrap()
+                    .split_once(':')
             {
                 return Some((String::from(name), String::from(pass)));
             }

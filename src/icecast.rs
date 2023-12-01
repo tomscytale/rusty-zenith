@@ -3,6 +3,7 @@ use std::io::{Error as IOError, ErrorKind};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::{engine::general_purpose, Engine as _};
 use httparse::Status;
 use httpdate::fmt_http_date;
 use serde::Deserialize;
@@ -277,7 +278,8 @@ pub async fn connect_and_redirect<'a>(
         req_buf.extend_from_slice(format!("Host: {}\r\n", addr).as_bytes());
         if !auth_included {
             if let Some(passwd) = url.password() {
-                let encoded = base64::encode(format!("{}:{}", url.username(), passwd));
+                let encoded =
+                    general_purpose::STANDARD.encode(format!("{}:{}", url.username(), passwd));
                 req_buf
                     .extend_from_slice(format!("Authorization: Basic {}\r\n", encoded).as_bytes());
             }

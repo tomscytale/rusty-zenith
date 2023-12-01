@@ -5,7 +5,7 @@ authors = ["BananaPuncher714 <banana@aaaaahhhhhhh.com>"]
 edition = "2021"
 
 [dependencies]
-base64 = "0.13.1"
+base64 = "0.21.5"
 hex = "0.4.3"
 httparse = "1.8.0"
 httpdate = "1.0.3"
