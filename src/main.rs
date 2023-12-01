@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use tokio::net::TcpListener;
 
-use crate::structs::{Query, ServerProperties};
+use crate::structs::ServerProperties;
 
 mod admin;
 mod consts;
@@ -13,29 +13,6 @@ mod icecast;
 mod server;
 mod structs;
 mod validators;
-
-fn extract_queries(url: &str) -> (&str, Option<Vec<Query>>) {
-    if let Some((path, last)) = url.split_once('?') {
-        let mut queries: Vec<Query> = Vec::new();
-        for field in last.split('&') {
-            // decode doesn't treat + as a space
-            if let Some((name, value)) = field.replace('+', " ").split_once('=') {
-                let name = urlencoding::decode(name);
-                let value = urlencoding::decode(value);
-
-                if let Ok(field) = name {
-                    if let Ok(value) = value {
-                        queries.push(Query { field, value });
-                    }
-                }
-            }
-        }
-
-        (path, Some(queries))
-    } else {
-        (url, None)
-    }
-}
 
 #[tokio::main]
 async fn main() {

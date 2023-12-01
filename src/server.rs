@@ -871,7 +871,7 @@ pub async fn handle_connection(
     let body_offset = req.parse(&buffer)?.unwrap();
     let method = req.method.unwrap();
 
-    let (base_path, queries) = crate::extract_queries(req.path.unwrap());
+    let (base_path, queries) = extract_queries(req.path.unwrap());
     let path = path_clean::clean(base_path);
     let headers = req.headers;
 
@@ -1379,5 +1379,31 @@ pub async fn read_http_response<'a>(
                 )));
             }
         }
+    }
+}
+
+fn extract_queries(url: &str) -> (&str, Option<Vec<Query>>) {
+    if let Some((path, last)) = url.split_once('?') {
+        let mut queries: Vec<Query> = Vec::new();
+        for field in last.split('&') {
+            // decode doesn't treat + as a space
+            if let Some((name, value)) = field.replace('+', " ").split_once('=') {
+                let name = urlencoding::decode(name);
+                let value = urlencoding::decode(value);
+
+                if let Ok(field) = name {
+                    if let Ok(value) = value {
+                        queries.push(Query {
+                            field: field.to_string(),
+                            value: value.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        (path, Some(queries))
+    } else {
+        (url, None)
     }
 }
