@@ -574,51 +574,47 @@ pub async fn handle_get(
                 // Receive whatever bytes, then send to the client
                 let client = arc_client.read().await;
                 let res = client.receiver.write().await.recv().await;
+
                 // Check if the channel is still alive
-                if let Some(read) = res {
-                    // If an empty buffer has been sent, then disconnect the client
-                    if read.len() > 0 {
-                        // Decrease the internal buffer
-                        *client.buffer_size.write().await -= read.len();
-                        match {
-                            if meta_enabled {
-                                let meta_vec = {
-                                    let serv = server.read().await;
-                                    if let Some(source_lock) =
-                                        serv.sources.get(&*client.source.read().await)
-                                    {
-                                        let source = source_lock.read().await;
-
-                                        source.metadata_vec.clone()
-                                    } else {
-                                        vec![0]
-                                    }
-                                };
-
-                                write_to_client(
-                                    stream,
-                                    &mut sent_count,
-                                    metalen,
-                                    &read.to_vec(),
-                                    &meta_vec,
-                                )
-                                .await
-                            } else {
-                                stream.write_all(&read.to_vec()).await
-                            }
-                        } {
-                            Ok(_) => {
-                                arc_client.read().await.stats.write().await.bytes_sent += read.len()
-                            }
-                            Err(_) => break,
-                        }
-                    } else {
+                let read = match res {
+                    None => {
+                        // The sender has been dropped
+                        // The listener has been kicked
                         break;
                     }
-                } else {
-                    // The sender has been dropped
-                    // The listener has been kicked
+                    Some(read) => read,
+                };
+
+                // If an empty buffer has been sent, then disconnect the client
+                if read.len() == 0 {
                     break;
+                }
+
+                // Decrease the internal buffer
+                *client.buffer_size.write().await -= read.len();
+                match {
+                    if meta_enabled {
+                        let meta_vec = {
+                            let serv = server.read().await;
+                            if let Some(source_lock) =
+                                serv.sources.get(&*client.source.read().await)
+                            {
+                                let source = source_lock.read().await;
+
+                                source.metadata_vec.clone()
+                            } else {
+                                vec![0]
+                            }
+                        };
+
+                        write_to_client(stream, &mut sent_count, metalen, &read.to_vec(), &meta_vec)
+                            .await
+                    } else {
+                        stream.write_all(&read.to_vec()).await
+                    }
+                } {
+                    Ok(_) => arc_client.read().await.stats.write().await.bytes_sent += read.len(),
+                    Err(_) => break,
                 }
             }
         }
