@@ -539,32 +539,25 @@ pub async fn handle_get(
         drop(serv);
 
         // Send the burst on connect buffer
-        let burst_success = {
-            if !burst_buf.is_empty() {
-                match {
-                    if meta_enabled {
-                        write_to_client(
-                            stream,
-                            &mut sent_count,
-                            metalen,
-                            &burst_buf,
-                            &metadata_copy,
-                        )
+        let burst_success = if !burst_buf.is_empty() {
+            match {
+                if meta_enabled {
+                    write_to_client(stream, &mut sent_count, metalen, &burst_buf, &metadata_copy)
                         .await
-                    } else {
-                        stream.write_all(&burst_buf).await
-                    }
-                } {
-                    Ok(_) => {
-                        arc_client.read().await.stats.write().await.bytes_sent += burst_buf.len();
-                        true
-                    }
-                    Err(_) => false,
+                } else {
+                    stream.write_all(&burst_buf).await
                 }
-            } else {
-                true
+            } {
+                Ok(_) => {
+                    arc_client.read().await.stats.write().await.bytes_sent += burst_buf.len();
+                    true
+                }
+                Err(_) => false,
             }
+        } else {
+            true
         };
+
         drop(metadata_copy);
         drop(burst_buf);
 
